@@ -1,0 +1,105 @@
+- name: backup secrets are in place
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/runv/s3.env
+    - /etc/runv/restic.pass
+  register: secrets
+
+- name: stop if a secret is missing
+  ansible.builtin.fail:
+    msg: "{{ item.item }} is missing, see README"
+  loop: "{{ secrets.results }}"
+  when: not item.stat.exists
+
+- name: state and cache dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - /var/lib/runv/queue
+    - /var/cache/restic
+
+- name: lib dir
+  ansible.builtin.file:
+    path: /usr/local/lib/runv
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: mail helper
+  ansible.builtin.copy:
+    src: runvmail.py
+    dest: /usr/local/lib/runv/runvmail.py
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: admin commands
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /usr/local/sbin/{{ item }}
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - runv-user
+    - runv-backup
+    - runv-alert
+    - runv-weekly
+
+- name: backup path lists
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: /etc/runv/{{ item }}
+    owner: root
+    group: root
+    mode: "0600"
+  loop:
+    - backup-exclude
+    - backup-instant.paths
+
+- name: mail settings example
+  ansible.builtin.copy:
+    src: mail.env.example
+    dest: /etc/runv/mail.env.example
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: systemd units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/systemd/system/{{ item }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - runv-alert@.service
+    - runv-backup.service
+    - runv-backup.timer
+    - runv-backup-instant.service
+    - runv-backup-instant.path
+    - runv-purge.service
+    - runv-purge.timer
+    - runv-weekly.service
+    - runv-weekly.timer
+  notify: daemon reload
+
+- name: reload units now
+  ansible.builtin.meta: flush_handlers
+
+- name: timers and watchers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - runv-backup.timer
+    - runv-backup-instant.path
+    - runv-purge.timer
+    - runv-weekly.timer

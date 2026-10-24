@@ -1,0 +1,9 @@
+[Unit]
+Description=runv weekly report, monday morning in Brazil
+
+[Timer]
+OnCalendar=Mon *-*-* 12:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

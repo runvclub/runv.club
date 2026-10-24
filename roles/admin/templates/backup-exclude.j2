@@ -1,0 +1,6 @@
+/home/*/.cache
+/root/.cache
+/var/lib/runv/.lock
+{% for path in backup_exclude_extra %}
+{{ path }}
+{% endfor %}

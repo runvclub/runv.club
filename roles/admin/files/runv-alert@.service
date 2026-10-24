@@ -1,0 +1,6 @@
+[Unit]
+Description=report failure of %i
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/runv-alert %i

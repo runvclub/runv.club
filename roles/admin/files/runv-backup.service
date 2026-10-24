@@ -1,0 +1,11 @@
+[Unit]
+Description=runv full backup
+After=network-online.target
+Wants=network-online.target
+OnFailure=runv-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/runv-backup full
+Nice=10
+IOSchedulingClass=idle

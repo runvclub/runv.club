@@ -1,0 +1,50 @@
+#!/bin/sh
+# runv-backup full     everything, runs on the 1st and 16th
+# runv-backup instant  small state that can't wait 15 days (queue, i2p keys)
+# runv-backup status   last snapshot of each repo
+set -eu
+
+. /etc/runv/s3.env
+export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION
+export RESTIC_PASSWORD_FILE=/etc/runv/restic.pass
+export RESTIC_CACHE_DIR=/var/cache/restic
+
+repo() { echo "s3:$S3_ENDPOINT/$S3_BUCKET/$1"; }
+note() { echo "$(date -u +%FT%TZ) $*" >> /var/log/runv/backup.log; }
+
+case "${1:-}" in
+full)
+    export RESTIC_REPOSITORY="$(repo full)"
+    restic backup -q --tag full --one-file-system --exclude-caches \
+        --exclude-file /etc/runv/backup-exclude \
+        /home /root /etc /opt /var/lib/runv
+    restic forget -q --tag full --keep-last 6 --prune
+    restic check -q --read-data-subset=5%
+
+    # a backup nobody restored is a guess
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    restic restore -q latest --tag full --target "$tmp" --include /etc/hostname
+    cmp -s /etc/hostname "$tmp/etc/hostname"
+    note "full ok"
+    ;;
+instant)
+    export RESTIC_REPOSITORY="$(repo instant)"
+    restic backup -q --tag instant --exclude /var/lib/runv/deleted \
+        --files-from /etc/runv/backup-instant.paths
+    # people who left the queue disappear from here after 30 days
+    restic forget -q --tag instant --keep-within 30d --keep-last 3 --prune
+    note "instant ok"
+    ;;
+status)
+    for r in full instant; do
+        printf '%s: ' "$r"
+        RESTIC_REPOSITORY="$(repo "$r")" restic snapshots --latest 1 --json |
+            python3 -I -c 'import json,sys; s=json.load(sys.stdin); print(s[-1]["time"][:19] if s else "none")'
+    done
+    ;;
+*)
+    echo "usage: runv-backup full|instant|status" >&2
+    exit 2
+    ;;
+esac

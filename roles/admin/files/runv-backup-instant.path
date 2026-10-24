@@ -1,0 +1,9 @@
+[Unit]
+Description=watch runv state for the instant backup
+
+[Path]
+PathChanged=/var/lib/runv/members.json
+PathChanged=/var/lib/runv/queue
+
+[Install]
+WantedBy=paths.target

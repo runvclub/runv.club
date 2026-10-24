@@ -1,0 +1,26 @@
+#!/usr/bin/python3 -I
+"""Called by OnFailure= with the failed unit name. Logs it and mails the admin."""
+
+import datetime as dt
+import socket
+import subprocess
+import sys
+
+sys.path.insert(0, "/usr/local/lib/runv")
+import runvmail  # noqa: E402
+
+unit = sys.argv[1] if len(sys.argv) > 1 else "unknown"
+stamp = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+with open("/var/log/runv/alerts.log", "a") as f:
+    f.write(f"{stamp} {unit} failed\n")
+
+journal = subprocess.run(
+    ["journalctl", "-u", unit, "-n", "40", "--no-pager", "-o", "short-iso"],
+    text=True, capture_output=True,
+).stdout
+
+to = runvmail.admin_address()
+if to:
+    host = socket.gethostname()
+    runvmail.send(to, f"[{host}] {unit} failed", f"{unit} failed at {stamp}.\n\n{journal}")

@@ -1,0 +1,12 @@
+[Unit]
+Description=runv instant backup (queue and i2p keys)
+After=network-online.target
+Wants=network-online.target
+OnFailure=runv-alert@%n.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/runv-backup instant
+Restart=on-failure
+RestartSec=10min

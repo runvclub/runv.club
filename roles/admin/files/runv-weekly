@@ -1,0 +1,92 @@
+#!/usr/bin/python3 -I
+"""Weekly summary for the admin. Mailed if mail is set up, always saved
+under /var/log/runv/weekly/."""
+
+import datetime as dt
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+
+sys.path.insert(0, "/usr/local/lib/runv")
+import runvmail  # noqa: E402
+
+
+def sh(*cmd):
+    r = subprocess.run(cmd, text=True, capture_output=True)
+    return r.stdout.strip() or r.stderr.strip()
+
+
+def members():
+    try:
+        with open("/var/lib/runv/members.json") as f:
+            db = json.load(f)
+    except FileNotFoundError:
+        db = []
+    counts = {}
+    for m in db:
+        counts[m["status"]] = counts.get(m["status"], 0) + 1
+    week_ago = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)
+    new = [m["username"] for m in db if dt.datetime.fromisoformat(m["created_at"]) > week_ago]
+    return counts, new
+
+
+def recent_alerts():
+    try:
+        with open("/var/log/runv/alerts.log") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return []
+    week_ago = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).isoformat()
+    return [l for l in lines if l[:25] >= week_ago[:25]]
+
+
+def main():
+    today = dt.date.today().isoformat()
+    host = socket.gethostname()
+    disk = shutil.disk_usage("/")
+    counts, new = members()
+    alerts = recent_alerts()
+    failed = sh("systemctl", "--failed", "--no-legend", "--plain") or "none"
+    banned = sh("fail2ban-client", "status", "sshd").splitlines()
+    banned = next((l.split(":", 1)[1].strip() for l in banned if "Currently banned" in l), "?")
+    upgradable = [l for l in sh("apt", "list", "--upgradable").splitlines()[1:] if l]
+
+    lines = [
+        f"{host}, week ending {today}",
+        "",
+        f"uptime:   {sh('uptime', '-p')}",
+        f"load:     {' '.join(open('/proc/loadavg').read().split()[:3])}",
+        f"disk /:   {disk.used // 2**30} of {disk.total // 2**30} GiB used",
+        "memory:   {2} of {1} used".format(*sh("free", "-h").splitlines()[1].split()),
+        "",
+        "members:  " + (", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "none"),
+        "new:      " + (", ".join(new) or "none"),
+        "",
+        "backups:",
+        sh("/usr/local/sbin/runv-backup", "status"),
+        "",
+        f"ssh bans right now: {banned}",
+        f"failed units: {failed}",
+        f"pending updates: {len(upgradable)}",
+        "",
+        "alerts this week:",
+        *(alerts or ["none"]),
+    ]
+    report = "\n".join(lines) + "\n"
+
+    os.makedirs("/var/log/runv/weekly", exist_ok=True)
+    with open(f"/var/log/runv/weekly/{today}.txt", "w") as f:
+        f.write(report)
+
+    to = runvmail.admin_address()
+    if to:
+        runvmail.send(to, f"[{host}] weekly report {today}", report)
+    else:
+        print(report)
+
+
+if __name__ == "__main__":
+    main()
