@@ -1,0 +1,95 @@
+- name: members group
+  ansible.builtin.group:
+    name: members
+    state: present
+
+- name: runv dirs
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/runv, mode: "0700" }
+    - { path: /var/lib/runv, mode: "0700" }
+    - { path: /var/lib/runv/deleted, mode: "0700" }
+    - { path: /var/log/runv, mode: "0750", group: adm }
+
+- name: runv.conf
+  ansible.builtin.template:
+    src: runv.conf.j2
+    dest: /etc/runv/runv.conf
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: skel dir
+  ansible.builtin.file:
+    path: /etc/runv/skel
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: debian dotfiles in skel
+  ansible.builtin.copy:
+    src: /etc/skel/{{ item }}
+    dest: /etc/runv/skel/{{ item }}
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - .bashrc
+    - .profile
+    - .bash_logout
+
+- name: public dirs in skel
+  ansible.builtin.copy:
+    src: skel/
+    dest: /etc/runv/skel/
+    owner: root
+    group: root
+    mode: u=rwX,go=rX
+    directory_mode: "0755"
+
+- name: pam limits fallback
+  ansible.builtin.copy:
+    src: limits.conf
+    dest: /etc/security/limits.d/members.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: quota tools
+  ansible.builtin.apt:
+    name: quota
+    state: present
+    install_recommends: false
+
+- name: usrquota on /
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(\S+\s+/\s+ext4\s+)(?!\S*usrquota)(\S+)'
+    replace: '\1\2,usrquota'
+  register: fstab_quota
+
+- name: remount / with quota
+  ansible.builtin.command: mount -o remount /
+  when: fstab_quota is changed
+
+- name: quota file
+  ansible.builtin.command: quotacheck -cum /
+  args:
+    creates: /aquota.user
+
+- name: quota state
+  ansible.builtin.command: quotaon -pu /
+  register: quota_state
+  changed_when: false
+  failed_when: false
+
+- name: quota on
+  ansible.builtin.command: quotaon -u /
+  when: "' is on' not in quota_state.stdout"

@@ -1,0 +1,8 @@
+member_uid_min: 2000
+member_memory: 1G
+member_swap: 256M
+member_tasks: 200
+member_cpu: 100%
+member_quota_soft: 2097152
+member_quota_hard: 2621440
+quarantine_days: 14

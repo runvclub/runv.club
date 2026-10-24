@@ -1,0 +1,22 @@
+# read by runv-user, runv-backup and runv-weekly
+[members]
+group = members
+uid_min = {{ member_uid_min }}
+shell = /bin/bash
+skel = /etc/runv/skel
+
+[limits]
+memory = {{ member_memory }}
+swap = {{ member_swap }}
+tasks = {{ member_tasks }}
+cpu = {{ member_cpu }}
+# disk quota in KiB
+quota_soft = {{ member_quota_soft }}
+quota_hard = {{ member_quota_hard }}
+
+[delete]
+quarantine = /var/lib/runv/deleted
+days = {{ quarantine_days }}
+
+[mail]
+config = /etc/runv/mail.env

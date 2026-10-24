@@ -1,0 +1,383 @@
+#!/usr/bin/python3 -I
+"""Manage runv.club member accounts.
+
+    runv-user add NAME --email ADDR (--key 'ssh-ed25519 ...' | --key-file FILE)
+    runv-user list
+    runv-user show NAME
+    runv-user suspend NAME [--reason TEXT]
+    runv-user unsuspend NAME
+    runv-user delete NAME
+    runv-user purge [--now NAME]
+
+Only accounts created by this tool can be touched. Deleted homes go to a
+quarantine dir first and are removed by `purge` after the configured days.
+"""
+
+import argparse
+import configparser
+import datetime as dt
+import fcntl
+import json
+import os
+import pwd
+import grp
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+sys.path.insert(0, "/usr/local/lib/runv")
+import runvmail  # noqa: E402
+
+CONF = "/etc/runv/runv.conf"
+DB = "/var/lib/runv/members.json"
+LOCK = "/var/lib/runv/.lock"
+LOG = "/var/log/runv/users.log"
+SLICE_DIR = "/etc/systemd/system/user-{uid}.slice.d"
+
+NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,15}$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+KEY_TYPES = {
+    "ssh-ed25519", "sk-ssh-ed25519@openssh.com",
+    "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521",
+    "sk-ecdsa-sha2-nistp256@openssh.com", "ssh-rsa",
+}
+RESERVED = {
+    "root", "admin", "administrator", "sysadmin", "sudo", "staff", "support",
+    "help", "info", "abuse", "postmaster", "hostmaster", "webmaster", "www",
+    "mail", "ftp", "ssh", "git", "irc", "news", "noreply", "nobody", "operator",
+    "security", "system", "daemon", "members", "runv", "runvclub", "join",
+    "signup", "register", "public", "test", "guest", "anonymous", "user",
+}
+
+
+def die(msg):
+    print(f"runv-user: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def now():
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+
+
+def run(*cmd, check=True, **kw):
+    return subprocess.run(cmd, check=check, text=True, capture_output=True, **kw)
+
+
+def log(line):
+    with open(LOG, "a") as f:
+        f.write(f"{now().isoformat()} {line}\n")
+
+
+def load_conf():
+    c = configparser.ConfigParser(interpolation=None)
+    if not c.read(CONF):
+        die(f"missing {CONF}")
+    return c
+
+
+def load_db():
+    try:
+        with open(DB) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+
+
+def save_db(db):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(DB))
+    with os.fdopen(fd, "w") as f:
+        json.dump(db, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, DB)
+
+
+def find(db, name):
+    for m in db:
+        if m["username"] == name:
+            return m
+    return None
+
+
+def member_or_die(db, name, *statuses):
+    m = find(db, name)
+    if not m:
+        die(f"{name} is not a member account")
+    if statuses and m["status"] not in statuses:
+        die(f"{name} is {m['status']}")
+    return m
+
+
+def exists_on_system(name):
+    for lookup in (pwd.getpwnam, grp.getgrnam):
+        try:
+            lookup(name)
+            return True
+        except KeyError:
+            pass
+    return False
+
+
+def next_uid(start):
+    used = {p.pw_uid for p in pwd.getpwall()} | {g.gr_gid for g in grp.getgrall()}
+    uid = start
+    while uid in used:
+        uid += 1
+    return uid
+
+
+def check_key(line):
+    line = line.strip()
+    if "\n" in line:
+        die("one key only, on a single line")
+    parts = line.split()
+    if len(parts) < 2 or parts[0] not in KEY_TYPES:
+        die("that does not look like a public key (options before the key are not allowed)")
+    with tempfile.NamedTemporaryFile("w", suffix=".pub") as f:
+        f.write(line + "\n")
+        f.flush()
+        out = run("ssh-keygen", "-l", "-f", f.name, check=False)
+    if out.returncode != 0:
+        die("ssh-keygen could not read that key")
+    bits, fingerprint = out.stdout.split()[:2]
+    if parts[0] == "ssh-rsa" and int(bits) < 3072:
+        die("rsa keys need at least 3072 bits, ed25519 is better")
+    return line, fingerprint
+
+
+def mounts_under(path):
+    out = run("findmnt", "-rn", "-o", "TARGET").stdout.split()
+    path = path.rstrip("/")
+    return [t for t in out if t == path or t.startswith(path + "/")]
+
+
+def stop_sessions(name):
+    run("loginctl", "terminate-user", name, check=False)
+    run("pkill", "-KILL", "-u", name, check=False)
+
+
+def write_slice(uid, limits):
+    d = SLICE_DIR.format(uid=uid)
+    os.makedirs(d, exist_ok=True)
+    with open(f"{d}/50-runv.conf", "w") as f:
+        f.write(
+            "[Slice]\n"
+            f"MemoryMax={limits['memory']}\n"
+            f"MemorySwapMax={limits['swap']}\n"
+            f"TasksMax={limits['tasks']}\n"
+            f"CPUQuota={limits['cpu']}\n"
+        )
+    run("systemctl", "daemon-reload")
+
+
+def drop_slice(uid):
+    shutil.rmtree(SLICE_DIR.format(uid=uid), ignore_errors=True)
+    run("systemctl", "daemon-reload")
+
+
+def welcome_text(name):
+    return f"""Hi {name},
+
+Your runv.club account is ready. Log in with the key you sent us:
+
+    ssh {name}@runv.club
+
+Your home already has public_html, public_gemini, public_gopher and
+public_i2p. Type `help` once you are in if you get lost, and come say hi
+on IRC.
+
+See you around,
+runv.club
+"""
+
+
+def cmd_add(args, conf, db):
+    name = args.name
+    if not NAME_RE.match(name):
+        die("names are 2 to 16 chars, lowercase letters, digits and _, starting with a letter")
+    if name in RESERVED or name.startswith("runv"):
+        die(f"{name} is reserved")
+    if find(db, name) or exists_on_system(name):
+        die(f"{name} is taken")
+    if not EMAIL_RE.match(args.email):
+        die("that email address looks wrong")
+    key = args.key
+    if args.key_file:
+        with open(args.key_file) as f:
+            key = f.read()
+    if not key:
+        die("need --key or --key-file")
+    key, fingerprint = check_key(key)
+
+    m = conf["members"]
+    uid = next_uid(m.getint("uid_min"))
+    run("useradd", "--create-home", "--skel", m["skel"], "--shell", m["shell"],
+        "--uid", str(uid), "--user-group", "--groups", m["group"], name)
+    try:
+        home = pwd.getpwnam(name).pw_dir
+        os.chmod(home, 0o711)
+
+        ssh = os.path.join(home, ".ssh")
+        os.makedirs(ssh, mode=0o700, exist_ok=True)
+        with open(os.path.join(ssh, "authorized_keys"), "w") as f:
+            f.write(key + "\n")
+        os.chmod(os.path.join(ssh, "authorized_keys"), 0o600)
+        run("chown", "-R", f"{name}:{name}", ssh)
+
+        write_slice(uid, conf["limits"])
+        q = conf["limits"]
+        run("setquota", "-u", name, q["quota_soft"], q["quota_hard"], "0", "0", "/")
+    except Exception:
+        # half an account is worse than none, the home is brand new so -r is fine
+        run("userdel", "--remove", name, check=False)
+        drop_slice(uid)
+        raise
+
+    db.append({
+        "username": name,
+        "uid": uid,
+        "email": args.email,
+        "key_fingerprint": fingerprint,
+        "status": "active",
+        "created_at": now().isoformat(),
+    })
+    save_db(db)
+    log(f"add {name} uid={uid} key={fingerprint}")
+
+    sent = runvmail.send(args.email, "Welcome to runv.club", welcome_text(name))
+    print(f"{name} created (uid {uid}, {fingerprint})" + ("" if sent else ", welcome mail not sent"))
+
+
+def cmd_list(args, conf, db):
+    if not db:
+        print("no members yet")
+        return
+    for m in sorted(db, key=lambda m: m["created_at"]):
+        print(f"{m['username']:<16} {m['status']:<10} {m['created_at'][:10]}  {m['email']}")
+
+
+def cmd_show(args, conf, db):
+    m = member_or_die(db, args.name)
+    print(json.dumps(m, indent=2, sort_keys=True))
+
+
+def cmd_suspend(args, conf, db):
+    m = member_or_die(db, args.name, "active")
+    run("usermod", "--lock", "--expiredate", "1", m["username"])
+    stop_sessions(m["username"])
+    m["status"] = "suspended"
+    m["suspended_at"] = now().isoformat()
+    if args.reason:
+        m["suspend_reason"] = args.reason
+    save_db(db)
+    log(f"suspend {m['username']} reason={args.reason or '-'}")
+    print(f"{m['username']} suspended")
+
+
+def cmd_unsuspend(args, conf, db):
+    m = member_or_die(db, args.name, "suspended")
+    run("usermod", "--unlock", "--expiredate", "", m["username"])
+    m["status"] = "active"
+    m.pop("suspended_at", None)
+    m.pop("suspend_reason", None)
+    save_db(db)
+    log(f"unsuspend {m['username']}")
+    print(f"{m['username']} active again")
+
+
+def cmd_delete(args, conf, db):
+    m = member_or_die(db, args.name, "active", "suspended")
+    name = m["username"]
+    home = pwd.getpwnam(name).pw_dir
+    busy = mounts_under(home)
+    if busy:
+        die(f"something is mounted under {home}: {', '.join(busy)}. unmount it first, no lazy umount")
+
+    run("usermod", "--lock", "--expiredate", "1", name)
+    stop_sessions(name)
+
+    quarantine = conf["delete"]["quarantine"]
+    stamp = now().strftime("%Y%m%d-%H%M%S")
+    dest = os.path.join(quarantine, f"{name}-{stamp}")
+    os.rename(home, dest)
+
+    run("setquota", "-u", name, "0", "0", "0", "0", "/", check=False)
+    run("crontab", "-r", "-u", name, check=False)
+    run("userdel", name)
+    drop_slice(m["uid"])
+    for spool in (f"/var/mail/{name}", f"/var/spool/mail/{name}"):
+        if os.path.isfile(spool):
+            os.remove(spool)
+
+    m["status"] = "deleted"
+    m["deleted_at"] = now().isoformat()
+    m["quarantine"] = dest
+    save_db(db)
+    log(f"delete {name} home moved to {dest}")
+    days = conf["delete"].getint("days")
+    print(f"{name} deleted, home kept in {dest} for {days} days")
+
+
+def purge_one(m, db, conf):
+    path = m.get("quarantine")
+    root = conf["delete"]["quarantine"].rstrip("/") + "/"
+    if path and os.path.exists(path):
+        if not path.startswith(root):
+            die(f"refusing to remove {path}, it is outside {root}")
+        busy = mounts_under(path)
+        if busy:
+            die(f"something is mounted under {path}: {', '.join(busy)}")
+        shutil.rmtree(path)
+    db.remove(m)
+    log(f"purge {m['username']}")
+    print(f"{m['username']} purged")
+
+
+def cmd_purge(args, conf, db):
+    if args.now:
+        purge_one(member_or_die(db, args.now, "deleted"), db, conf)
+        save_db(db)
+        return
+    days = conf["delete"].getint("days")
+    cutoff = now() - dt.timedelta(days=days)
+    due = [m for m in db if m["status"] == "deleted"
+           and dt.datetime.fromisoformat(m["deleted_at"]) < cutoff]
+    for m in due:
+        purge_one(m, db, conf)
+    if due:
+        save_db(db)
+
+
+def main():
+    if os.geteuid() != 0:
+        die("run me as root")
+    p = argparse.ArgumentParser(prog="runv-user")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    a = sub.add_parser("add")
+    a.add_argument("name")
+    a.add_argument("--email", required=True)
+    a.add_argument("--key")
+    a.add_argument("--key-file")
+
+    sub.add_parser("list")
+    for c in ("show", "unsuspend", "delete"):
+        sub.add_parser(c).add_argument("name")
+    s = sub.add_parser("suspend")
+    s.add_argument("name")
+    s.add_argument("--reason")
+    pu = sub.add_parser("purge")
+    pu.add_argument("--now", metavar="NAME")
+
+    args = p.parse_args()
+    conf = load_conf()
+    with open(LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        db = load_db()
+        globals()[f"cmd_{args.cmd}"](args, conf, db)
+
+
+if __name__ == "__main__":
+    main()
