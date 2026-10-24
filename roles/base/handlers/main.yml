@@ -1,0 +1,19 @@
+- name: reload ssh
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: reloaded
+
+- name: restart fail2ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    state: restarted
+
+- name: restart journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted
+
+- name: restart resolved
+  ansible.builtin.systemd_service:
+    name: systemd-resolved
+    state: restarted

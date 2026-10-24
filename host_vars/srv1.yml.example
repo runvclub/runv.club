@@ -1,0 +1,5 @@
+# copy to srv1.yml and fill in
+admin_user: admin
+monitor_ip: 192.0.2.10
+# local paths the full backup should skip
+backup_exclude_extra: []

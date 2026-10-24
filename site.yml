@@ -1,0 +1,8 @@
+# sudo ansible-playbook site.yml
+- hosts: srv1
+  become: true
+  roles:
+    - base
+    - tools
+    - members
+    - admin

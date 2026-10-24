@@ -1,0 +1,27 @@
+# what a member needs to learn their way around a shell
+- name: member tools
+  ansible.builtin.apt:
+    name:
+      - nano
+      - vim
+      - git
+      - python3
+      - gcc
+      - make
+      - libc6-dev
+      - man-db
+      - manpages
+      - less
+      - tmux
+      - htop
+      - curl
+      - wget
+      - rsync
+      - tree
+      - jq
+      - zip
+      - unzip
+      - file
+      - bc
+    state: present
+    install_recommends: false

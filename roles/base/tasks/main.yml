@@ -1,0 +1,119 @@
+- name: base packages
+  ansible.builtin.apt:
+    name:
+      - openssh-server
+      - ufw
+      - fail2ban
+      - nftables
+      - unattended-upgrades
+      - chrony
+      - snmpd
+      - git
+      - restic
+    state: present
+    install_recommends: false
+
+- name: sshd drop-ins
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/ssh/sshd_config.d/{{ item }}
+    owner: root
+    group: root
+    mode: "0644"
+    validate: sshd -t -f %s
+  loop:
+    - 01-no-login-noise.conf
+    - 10-runv-admin.conf
+  notify: reload ssh
+
+- name: admin sudo
+  ansible.builtin.template:
+    src: sudoers-admin.j2
+    dest: /etc/sudoers.d/90-runv-{{ admin_user }}
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: fail2ban jails
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart fail2ban
+
+- name: journald retention
+  ansible.builtin.copy:
+    src: journald-retention.conf
+    dest: /etc/systemd/journald.conf.d/runv-retention.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart journald
+
+- name: no llmnr or mdns
+  ansible.builtin.copy:
+    src: resolved-no-llmnr.conf
+    dest: /etc/systemd/resolved.conf.d/99-runv-no-llmnr.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart resolved
+
+- name: unattended upgrades on
+  ansible.builtin.copy:
+    src: 20auto-upgrades
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: firewall status
+  ansible.builtin.command: ufw status verbose
+  register: ufw_status
+  changed_when: false
+
+- name: firewall defaults
+  ansible.builtin.command: ufw default {{ item }}
+  loop:
+    - deny incoming
+    - allow outgoing
+  when: "'Default: deny (incoming), allow (outgoing)' not in ufw_status.stdout"
+
+# fail2ban and ufw share the kernel through iptables-nft,
+# nftables.service would load /etc/nftables.conf on top of that
+- name: nftables service stays off
+  ansible.builtin.systemd_service:
+    name: nftables
+    enabled: false
+
+- name: firewall rules
+  ansible.builtin.command: ufw {{ item }}
+  loop:
+    - allow 22/tcp
+    - allow 80/tcp
+    - allow 443/tcp
+    - allow from {{ monitor_ip }} to any port 161 proto udp
+  register: ufw_rule
+  changed_when: "'Rule added' in ufw_rule.stdout"
+
+- name: firewall on
+  ansible.builtin.command: ufw --force enable
+  when: "'Status: active' not in ufw_status.stdout"
+
+- name: services that must be running
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - ssh
+    - fail2ban
+    - ufw
+    - unattended-upgrades
+    - chrony
+    - snmpd
+    - beszel-agent
+    - tailscaled
