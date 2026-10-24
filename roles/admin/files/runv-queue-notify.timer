@@ -1,0 +1,9 @@
+[Unit]
+Description=retry signup receipts every hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

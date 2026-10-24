@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}your place in line{% endblock %}
+{% block body %}
+<p>Thanks, {{ r.username }}. Your request is in.</p>
+<p>You are number {{ pos }} in line. At 5 approvals a week that's about {{ weeks }} week{{ "s" if weeks != 1 }}.</p>
+<p>Keep this page's address to check back later. We'll also mail you when your account is ready, and every 60 days we'll ask if you still want in.</p>
+<p>While you wait, the IRC is open to everyone: irc.runv.club, port 6697, TLS.</p>
+<p><a href="/">runv.club</a></p>
+{% endblock %}

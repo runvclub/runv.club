@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block body %}
+{% if state == "closed" %}
+<p>Signups open soon.</p>
+<p><a href="/">runv.club</a></p>
+{% elif state == "full" %}
+<p>Signups are paused for now. The line is long and we only let in a few people each week. Come back in a while.</p>
+<p><a href="/">runv.club</a></p>
+{% else %}
+<p>runv.club is a small shared Linux box. You get a shell account, a web page, a Gemini capsule, a Gopher hole and an I2P site, plus IRC and git.</p>
+<p>Every request is read by a person. We approve 5 people a week, so you may wait a while. You'll get a link to check your place in line.</p>
+
+{% if errors %}
+<div class="errors">
+{% for e in errors %}<p>{{ e }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" action="/join">
+  <input type="hidden" name="t" value="{{ token }}">
+  <div class="hp" aria-hidden="true">
+    <label for="website">Leave this empty</label>
+    <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+  </div>
+
+  <label for="username">Username</label>
+  <input type="text" id="username" name="username" value="{{ f.get('username', '') }}" required maxlength="16" autocomplete="off" spellcheck="false">
+  <small>2 to 16 characters: lowercase letters, digits and _</small>
+
+  <label for="email">Email</label>
+  <input type="email" id="email" name="email" value="{{ f.get('email', '') }}" required>
+  <small>Only used to tell you about your account. Never shown to anyone.</small>
+
+  <label for="key">SSH public key</label>
+  <textarea id="key" name="key" required spellcheck="false" placeholder="ssh-ed25519 AAAA... you@laptop">{{ f.get('key', '') }}</textarea>
+  <small>The contents of <code>~/.ssh/id_ed25519.pub</code>. No key yet? Run <code>ssh-keygen -t ed25519</code>.</small>
+
+  <label for="about">What do you want to do here?</label>
+  <textarea id="about" name="about" required maxlength="2000">{{ f.get('about', '') }}</textarea>
+
+  <div class="check">
+    <input type="checkbox" id="former" name="former" {% if f.get('former') %}checked{% endif %}>
+    <label for="former">I had an account on the old runv.club</label>
+  </div>
+  <div class="check">
+    <input type="checkbox" id="rules" name="rules" required>
+    <label for="rules">I read the <a href="/join/rules">rules</a> and I'm fine with them</label>
+  </div>
+
+  <button type="submit">Ask to join</button>
+</form>
+{% endif %}
+{% endblock %}

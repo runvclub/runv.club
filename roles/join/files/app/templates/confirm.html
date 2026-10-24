@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}still interested?{% endblock %}
+{% block body %}
+{% if done %}
+<p>Done, you keep your place: number {{ pos }} in line.</p>
+{% elif asked %}
+<p>Hi {{ r.username }}. You're number {{ pos }} in line. Still want an account on runv.club?</p>
+<form method="post"><button type="submit">Yes, keep my place</button></form>
+{% else %}
+<p>Nothing to confirm right now. You're number {{ pos }} in line.</p>
+{% endif %}
+<p><a href="/join/status/{{ r.token }}">your request</a></p>
+{% endblock %}

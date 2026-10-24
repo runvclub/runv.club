@@ -1,0 +1,79 @@
+- name: flask and gunicorn
+  ansible.builtin.apt:
+    name:
+      - python3-flask
+      - gunicorn
+    state: present
+    install_recommends: false
+
+- name: runvjoin user
+  ansible.builtin.user:
+    name: runvjoin
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/runv-join
+    create_home: false
+
+- name: queue dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: runvjoin
+    group: runvjoin
+    mode: "0700"
+  loop:
+    - /var/lib/runv-join
+    - /var/lib/runv-join/queue
+
+- name: config dir
+  ansible.builtin.file:
+    path: /etc/runv-join
+    state: directory
+    owner: root
+    group: runvjoin
+    mode: "0750"
+
+- name: form secret
+  ansible.builtin.shell: umask 027 && python3 -I -c 'import secrets; print(secrets.token_hex(32))' > /etc/runv-join/secret
+  args:
+    creates: /etc/runv-join/secret
+
+- name: form secret perms
+  ansible.builtin.file:
+    path: /etc/runv-join/secret
+    owner: root
+    group: runvjoin
+    mode: "0640"
+
+- name: join.conf
+  ansible.builtin.template:
+    src: join.conf.j2
+    dest: /etc/runv-join/join.conf
+    owner: root
+    group: runvjoin
+    mode: "0640"
+
+- name: app
+  ansible.builtin.copy:
+    src: app/
+    dest: /usr/local/lib/runv-join/
+    owner: root
+    group: root
+    mode: u=rwX,go=rX
+  notify: restart runv-join
+
+- name: unit
+  ansible.builtin.copy:
+    src: runv-join.service
+    dest: /etc/systemd/system/runv-join.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart runv-join
+
+- name: running
+  ansible.builtin.systemd_service:
+    name: runv-join
+    enabled: true
+    state: started
+    daemon_reload: true

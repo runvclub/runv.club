@@ -1,0 +1,263 @@
+#!/usr/bin/python3 -I
+"""The signup queue, from the admin side.
+
+    runv-queue list
+    runv-queue show ID
+    runv-queue approve ID [--force]
+    runv-queue reject ID --reason TEXT
+    runv-queue notify            send pending receipts (run by a path unit)
+    runv-queue tick [--now ISO]  60 day "still interested?" mails (daily timer)
+
+Requests leave the queue as soon as they are approved, rejected or expire,
+so no personal data sits around after that.
+"""
+
+import argparse
+import configparser
+import datetime as dt
+import fcntl
+import importlib.machinery
+import importlib.util
+import json
+import os
+import shutil
+import sys
+
+sys.path.insert(0, "/usr/local/lib/runv")
+import runvmail  # noqa: E402
+
+QUEUE = "/var/lib/runv-join/queue"
+JOIN_CONF = "/etc/runv-join/join.conf"
+
+
+def load_runv_user():
+    loader = importlib.machinery.SourceFileLoader("runv_user", "/usr/local/sbin/runv-user")
+    spec = importlib.util.spec_from_loader("runv_user", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+ru = load_runv_user()
+
+
+def die(msg):
+    print(f"runv-queue: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def now():
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+
+
+def signup():
+    c = configparser.ConfigParser(interpolation=None)
+    c.read(JOIN_CONF)
+    return c["signup"]
+
+
+def requests():
+    out = []
+    for name in os.listdir(QUEUE):
+        if name.endswith(".json"):
+            with open(os.path.join(QUEUE, name)) as f:
+                out.append(json.load(f))
+    return sorted(out, key=lambda r: r["created_at"])
+
+
+def get(rid):
+    for pos, r in enumerate(requests(), 1):
+        if r["id"] == rid:
+            return pos, r
+    die(f"no request {rid}")
+
+
+def save(r):
+    path = os.path.join(QUEUE, f"{r['id']}.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(r, f, indent=2, sort_keys=True)
+    shutil.chown(tmp, "runvjoin", "runvjoin")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def drop(r):
+    os.remove(os.path.join(QUEUE, f"{r['id']}.json"))
+
+
+def link(kind, r):
+    return f"{signup()['base_url']}/join/{kind}/{r['token']}"
+
+
+def approvals_this_week():
+    week_ago = now() - dt.timedelta(days=7)
+    return [m for m in ru.load_db() if dt.datetime.fromisoformat(m["created_at"]) > week_ago]
+
+
+def cmd_list(args):
+    reqs = requests()
+    if not reqs:
+        print("queue is empty")
+        return
+    for pos, r in enumerate(reqs, 1):
+        days = (now() - dt.datetime.fromisoformat(r["created_at"])).days
+        flag = " old member" if r.get("former_member") else ""
+        about = " ".join(r["about"].split())
+        about = about[:60] + ("..." if len(about) > 60 else "")
+        print(f"{pos:>3} {r['id']} {r['username']:<16} {days:>3}d{flag}  {about}")
+    print(f"{len(approvals_this_week())} of {signup().getint('weekly_cap')} approvals used this week")
+
+
+def cmd_show(args):
+    pos, r = get(args.id)
+    shown = {k: v for k, v in r.items() if k != "token"}
+    print(f"position {pos}")
+    print(json.dumps(shown, indent=2, sort_keys=True))
+
+
+def cmd_approve(args):
+    pos, r = get(args.id)
+    cap = signup().getint("weekly_cap")
+    used = len(approvals_this_week())
+    if used >= cap and not args.force:
+        die(f"already {used} approvals in the last 7 days (cap is {cap}). use --force to go over")
+    conf = ru.load_conf()
+    with open(ru.LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        db = ru.load_db()
+        ru.create(conf, db, r["username"], r["email"], r["key"], r["key_fingerprint"])
+    drop(r)
+
+
+def cmd_reject(args):
+    pos, r = get(args.id)
+    body = f"""Hi {r['username']},
+
+Thanks for asking to join runv.club. This time the answer is no:
+
+    {args.reason}
+
+Your request has been removed, along with the data you sent us.
+
+runv.club
+"""
+    if not runvmail.send(r["email"], "Your runv.club request", body):
+        print("rejection mail not sent, removing the request anyway")
+    drop(r)
+    print(f"{r['username']} rejected and removed")
+
+
+def cmd_notify(args):
+    # requests that land while this runs don't wake the path unit again,
+    # so keep going until a pass finds nothing new. the hourly timer
+    # catches whatever is left (mail down, for example)
+    tried = set()
+    while True:
+        todo = [(pos, r) for pos, r in enumerate(requests(), 1)
+                if not r.get("receipt_sent") and r["id"] not in tried]
+        if not todo:
+            return
+        for pos, r in todo:
+            tried.add(r["id"])
+            send_receipt(pos, r)
+
+
+def send_receipt(pos, r):
+    weeks = max(1, -(-pos // signup().getint("weekly_cap")))
+    body = f"""Hi {r['username']},
+
+We got your request to join runv.club. You are number {pos} in line, which
+is about {weeks} week{'s' if weeks != 1 else ''} at the pace we approve people.
+
+You can check your place here:
+{link('status', r)}
+
+If you didn't ask for this, ignore this mail and nothing else happens.
+
+runv.club
+"""
+    if runvmail.send(r["email"], "You're in line for runv.club", body):
+        r["receipt_sent"] = True
+        save(r)
+
+
+def cmd_tick(args):
+    t = dt.datetime.fromisoformat(args.now) if args.now else now()
+    s = signup()
+    every = dt.timedelta(days=s.getint("reconfirm_days"))
+    reply = dt.timedelta(days=s.getint("reply_days"))
+    remind = dt.timedelta(days=s.getint("reminder_day"))
+
+    for pos, r in enumerate(requests(), 1):
+        asked = r.get("reconfirm_sent_at")
+        if not asked:
+            since = dt.datetime.fromisoformat(r.get("confirmed_at") or r["created_at"])
+            if t - since >= every:
+                body = f"""Hi {r['username']},
+
+You asked to join runv.club a while ago and you're number {pos} in line.
+Still interested? Click here within {reply.days} days to keep your place:
+{link('confirm', r)}
+
+If you don't, we'll take you off the list. You can always ask again later.
+
+runv.club
+"""
+                # if the mail can't go out, the person stays in line
+                if runvmail.send(r["email"], "Still want to join runv.club?", body):
+                    r["reconfirm_sent_at"] = t.isoformat()
+                    save(r)
+            continue
+
+        waited = t - dt.datetime.fromisoformat(asked)
+        # nobody is dropped without the reminder having gone out first
+        if waited >= reply and r.get("reminder_sent_at"):
+            body = f"""Hi {r['username']},
+
+We didn't hear back, so your request to join runv.club has been removed,
+along with the data you sent us. You're welcome to ask again any time:
+{s['base_url']}/join
+
+runv.club
+"""
+            runvmail.send(r["email"], "Your runv.club request expired", body)
+            drop(r)
+            print(f"{r['username']} expired")
+        elif waited >= remind and not r.get("reminder_sent_at"):
+            left = max(1, (reply - waited).days + 1)
+            body = f"""Hi {r['username']},
+
+Quick reminder: if you still want an account on runv.club, confirm here in
+the next {left} day{'s' if left != 1 else ''} or you'll lose your place:
+{link('confirm', r)}
+
+runv.club
+"""
+            if runvmail.send(r["email"], "Reminder: still want to join runv.club?", body):
+                r["reminder_sent_at"] = t.isoformat()
+                save(r)
+
+
+def main():
+    if os.geteuid() != 0:
+        die("run me as root")
+    p = argparse.ArgumentParser(prog="runv-queue")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list")
+    sub.add_parser("show").add_argument("id")
+    a = sub.add_parser("approve")
+    a.add_argument("id")
+    a.add_argument("--force", action="store_true")
+    r = sub.add_parser("reject")
+    r.add_argument("id")
+    r.add_argument("--reason", required=True)
+    sub.add_parser("notify")
+    t = sub.add_parser("tick")
+    t.add_argument("--now", help=argparse.SUPPRESS)
+    args = p.parse_args()
+    globals()[f"cmd_{args.cmd}"](args)
+
+
+if __name__ == "__main__":
+    main()

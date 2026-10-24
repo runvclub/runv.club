@@ -1,0 +1,30 @@
+[Unit]
+Description=runv.club signup form
+After=network.target
+
+[Service]
+User=runvjoin
+Group=runvjoin
+Environment=PYTHONPATH=/usr/local/lib/runv
+ExecStart=/usr/bin/gunicorn --bind 127.0.0.1:8001 --workers 2 --chdir /usr/local/lib/runv-join app:app
+Restart=on-failure
+UMask=0077
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/runv-join
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

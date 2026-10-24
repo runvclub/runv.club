@@ -1,0 +1,8 @@
+[Unit]
+Description=watch the signup queue for new requests
+
+[Path]
+PathChanged=/var/lib/runv-join/queue
+
+[Install]
+WantedBy=paths.target

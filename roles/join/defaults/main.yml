@@ -1,0 +1,7 @@
+signup_state: closed
+signup_weekly_cap: 5
+signup_queue_max: 100
+signup_reconfirm_days: 60
+signup_reply_days: 7
+signup_reminder_day: 5
+signup_min_seconds: 5

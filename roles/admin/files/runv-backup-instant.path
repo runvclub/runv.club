@@ -3,7 +3,7 @@ Description=watch runv state for the instant backup
 
 [Path]
 PathChanged=/var/lib/runv/members.json
-PathChanged=/var/lib/runv/queue
+PathChanged=/var/lib/runv-join/queue
 
 [Install]
 WantedBy=paths.target

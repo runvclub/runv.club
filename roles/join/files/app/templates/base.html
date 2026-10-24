@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}join runv.club{% endblock %}</title>
+<style>
+  html { background: #fff; color: #000; }
+  body { max-width: 34rem; margin: 0 auto; padding: 4rem 1.25rem; font: 1.125rem/1.7 Georgia, "Times New Roman", serif; }
+  p { margin: 0 0 1.25rem; }
+  label { display: block; margin: 1.25rem 0 .25rem; }
+  input[type=text], input[type=email], textarea { width: 100%; box-sizing: border-box; font: 1rem/1.5 ui-monospace, monospace; padding: .4rem; border: 1px solid #000; background: #fff; color: #000; }
+  textarea { min-height: 6rem; }
+  .check label { display: inline; margin: 0; }
+  .check { margin-top: 1.25rem; }
+  button { margin-top: 1.5rem; font: inherit; padding: .4rem 1.2rem; border: 1px solid #000; background: #000; color: #fff; cursor: pointer; }
+  .errors { border-left: 3px solid #8b0000; padding-left: 1rem; color: #8b0000; }
+  .hp { position: absolute; left: -10000px; }
+  small { color: #444; }
+  a { color: #000; }
+</style>
+</head>
+<body>
+<main>
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>
