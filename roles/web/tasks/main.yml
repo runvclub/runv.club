@@ -1,0 +1,140 @@
+# caddy served the farewell letter before this role existed
+- name: is nginx installed
+  ansible.builtin.stat:
+    path: /usr/sbin/nginx
+  register: nginx_bin
+
+- name: stop caddy so nginx can take 80 and 443
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: stopped
+  when: not nginx_bin.stat.exists
+  failed_when: false
+
+- name: nginx and certbot
+  ansible.builtin.apt:
+    name:
+      - nginx
+      - certbot
+    state: present
+    install_recommends: false
+
+- name: site and acme dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /var/www/runv
+    - /var/www/acme
+
+- name: site files
+  ansible.builtin.copy:
+    src: site/
+    dest: /var/www/runv/
+    owner: root
+    group: root
+    mode: u=rwX,go=rX
+
+- name: nginx snippets
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: runv-common.conf, dest: /etc/nginx/conf.d/runv-common.conf }
+    - { src: runv-headers.conf, dest: /etc/nginx/snippets/runv-headers.conf }
+  notify: reload nginx
+
+- name: no default site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+- name: certificate already there
+  ansible.builtin.stat:
+    path: /etc/letsencrypt/live/runv.club/fullchain.pem
+  register: cert
+
+- name: http vhost
+  ansible.builtin.template:
+    src: runv.club-http.conf.j2
+    dest: /etc/nginx/sites-enabled/runv.club-http.conf
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    have_cert: "{{ cert.stat.exists }}"
+  notify: reload nginx
+
+- name: nginx running
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: apply nginx changes before asking for a cert
+  ansible.builtin.meta: flush_handlers
+
+- name: get the certificate
+  ansible.builtin.command: >
+    certbot certonly --webroot -w /var/www/acme
+    -d runv.club -d www.runv.club
+    --cert-name runv.club --agree-tos --register-unsafely-without-email
+    --non-interactive
+  args:
+    creates: /etc/letsencrypt/live/runv.club/fullchain.pem
+  register: certbot_run
+
+- name: reload nginx after renewals
+  ansible.builtin.copy:
+    src: reload-nginx
+    dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: http vhost now redirects
+  ansible.builtin.template:
+    src: runv.club-http.conf.j2
+    dest: /etc/nginx/sites-enabled/runv.club-http.conf
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    have_cert: true
+  notify: reload nginx
+
+- name: https vhost
+  ansible.builtin.template:
+    src: runv.club.conf.j2
+    dest: /etc/nginx/sites-enabled/runv.club.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: certbot renewal timer
+  ansible.builtin.systemd_service:
+    name: certbot.timer
+    enabled: true
+    state: started
+
+- name: caddy is gone
+  ansible.builtin.apt:
+    name: caddy
+    state: absent
+    purge: true
+
+- name: caddy leftovers
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/caddy
+    - /var/lib/caddy

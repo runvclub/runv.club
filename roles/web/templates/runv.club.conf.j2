@@ -1,0 +1,58 @@
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name www.runv.club;
+
+    ssl_certificate     /etc/letsencrypt/live/runv.club/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/runv.club/privkey.pem;
+    include snippets/runv-headers.conf;
+
+    return 301 https://runv.club$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name runv.club;
+
+    ssl_certificate     /etc/letsencrypt/live/runv.club/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/runv.club/privkey.pem;
+    include snippets/runv-headers.conf;
+
+    root /var/www/runv;
+    index index.html;
+    autoindex off;
+    disable_symlinks if_not_owner;
+
+    location = /farewell {
+        try_files /index.html =404;
+    }
+
+    # ~user pages straight from the home dir. a member can't symlink their
+    # way into files they don't own, and 403s look like 404s from outside
+    location ~ "^/~(?<member>[a-z][a-z0-9_]{1,15})(?<rest>/.*)?$" {
+        if ($rest = "") {
+            return 301 /~$member/;
+        }
+        alias /home/$member/public_html$rest;
+        error_page 403 =404 /404;
+    }
+
+    location = /404 {
+        internal;
+        return 404 "not found\n";
+    }
+
+    location /join {
+        limit_req zone=join burst=5 nodelay;
+        proxy_pass http://127.0.0.1:8001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
