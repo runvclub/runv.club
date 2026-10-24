@@ -1,0 +1,12 @@
+[Unit]
+Description=read-only gemini mounts for active members
+After=local-fs.target
+Before=molly-brown@runv.club.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/runv-user gemini-sync
+
+[Install]
+WantedBy=multi-user.target

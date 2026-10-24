@@ -3,3 +3,5 @@ admin_user: admin
 monitor_ip: 192.0.2.10
 # local paths the full backup should skip
 backup_exclude_extra: []
+# open or closed
+signup_state: closed

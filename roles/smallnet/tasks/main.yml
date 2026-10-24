@@ -1,0 +1,110 @@
+- name: gemini and gopher servers
+  ansible.builtin.apt:
+    name:
+      - molly-brown
+      - gophernicus
+      - openssl
+      - ssl-cert
+    state: present
+    install_recommends: false
+
+- name: root dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /var/gemini
+    - /var/gopher
+    - /etc/molly-brown/certs
+
+- name: root pages
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: index.gmi, dest: /var/gemini/index.gmi }
+    - { src: gophermap, dest: /var/gopher/gophermap }
+
+# gemini clients pin the certificate the first time they see it, so this
+# one is made once, lasts long and must never be replaced by accident
+- name: gemini certificate
+  ansible.builtin.command: >
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1
+    -days 7300 -nodes -subj /CN=runv.club -addext subjectAltName=DNS:runv.club
+    -keyout /etc/molly-brown/certs/runv.club.key
+    -out /etc/molly-brown/certs/runv.club.crt
+  args:
+    creates: /etc/molly-brown/certs/runv.club.crt
+  notify: restart molly-brown
+
+- name: gemini key perms
+  ansible.builtin.file:
+    path: /etc/molly-brown/certs/runv.club.key
+    owner: root
+    group: ssl-cert
+    mode: "0640"
+
+- name: molly-brown config
+  ansible.builtin.copy:
+    src: molly-brown.conf
+    dest: /etc/molly-brown/runv.club.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart molly-brown
+
+- name: no example config
+  ansible.builtin.file:
+    path: /etc/molly-brown/localhost.conf
+    state: absent
+
+- name: molly-brown running
+  ansible.builtin.systemd_service:
+    name: molly-brown@runv.club
+    enabled: true
+    state: started
+
+- name: gophernicus options
+  ansible.builtin.copy:
+    src: gophernicus
+    dest: /etc/default/gophernicus
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: gophernicus sandbox dir
+  ansible.builtin.file:
+    path: /etc/systemd/system/gophernicus@.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: gophernicus sandbox
+  ansible.builtin.copy:
+    src: gophernicus-sandbox.conf
+    dest: /etc/systemd/system/gophernicus@.service.d/sandbox.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: gopher socket
+  ansible.builtin.systemd_service:
+    name: gophernicus.socket
+    enabled: true
+    state: started
+
+- name: firewall for gemini and gopher
+  ansible.builtin.command: ufw allow {{ item }}
+  loop:
+    - 1965/tcp
+    - 70/tcp
+  register: ufw_rule
+  changed_when: "'Rule added' in ufw_rule.stdout"

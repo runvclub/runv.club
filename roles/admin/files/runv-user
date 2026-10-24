@@ -8,6 +8,7 @@
     runv-user unsuspend NAME
     runv-user delete NAME
     runv-user purge [--now NAME]
+    runv-user gemini-sync
 
 Only accounts created by this tool can be touched. Deleted homes go to a
 quarantine dir first and are removed by `purge` after the configured days.
@@ -21,13 +22,14 @@ import json
 import os
 import pwd
 import grp
-import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 
 sys.path.insert(0, "/usr/local/lib/runv")
+import runvcheck  # noqa: E402
 import runvmail  # noqa: E402
 
 CONF = "/etc/runv/runv.conf"
@@ -35,22 +37,7 @@ DB = "/var/lib/runv/members.json"
 LOCK = "/var/lib/runv/.lock"
 LOG = "/var/log/runv/users.log"
 SLICE_DIR = "/etc/systemd/system/user-{uid}.slice.d"
-
-NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,15}$")
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-KEY_TYPES = {
-    "ssh-ed25519", "sk-ssh-ed25519@openssh.com",
-    "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521",
-    "sk-ecdsa-sha2-nistp256@openssh.com", "ssh-rsa",
-}
-RESERVED = {
-    "root", "admin", "administrator", "sysadmin", "sudo", "staff", "support",
-    "help", "info", "abuse", "postmaster", "hostmaster", "webmaster", "www",
-    "mail", "ftp", "ssh", "git", "irc", "news", "noreply", "nobody", "operator",
-    "security", "system", "daemon", "members", "runv", "runvclub", "join",
-    "signup", "register", "public", "test", "guest", "anonymous", "user",
-}
-
+GEMINI_USERS = "/var/gemini/users"
 
 def die(msg):
     print(f"runv-user: {msg}", file=sys.stderr)
@@ -128,25 +115,6 @@ def next_uid(start):
     return uid
 
 
-def check_key(line):
-    line = line.strip()
-    if "\n" in line:
-        die("one key only, on a single line")
-    parts = line.split()
-    if len(parts) < 2 or parts[0] not in KEY_TYPES:
-        die("that does not look like a public key (options before the key are not allowed)")
-    with tempfile.NamedTemporaryFile("w", suffix=".pub") as f:
-        f.write(line + "\n")
-        f.flush()
-        out = run("ssh-keygen", "-l", "-f", f.name, check=False)
-    if out.returncode != 0:
-        die("ssh-keygen could not read that key")
-    bits, fingerprint = out.stdout.split()[:2]
-    if parts[0] == "ssh-rsa" and int(bits) < 3072:
-        die("rsa keys need at least 3072 bits, ed25519 is better")
-    return line, fingerprint
-
-
 def mounts_under(path):
     out = run("findmnt", "-rn", "-o", "TARGET").stdout.split()
     path = path.rstrip("/")
@@ -177,6 +145,58 @@ def drop_slice(uid):
     run("systemctl", "daemon-reload")
 
 
+
+# molly-brown won't follow symlinks out of its docroot, so each active
+# member's public_gemini is bind mounted read-only under /var/gemini/users.
+# read-only means an rm -rf through the mount can never reach the home.
+def gemini_target(name):
+    return os.path.join(GEMINI_USERS, name)
+
+
+def gemini_mounted(name):
+    return gemini_target(name) in run("findmnt", "-rn", "-o", "TARGET").stdout.split()
+
+
+def gemini_unmount(name):
+    target = gemini_target(name)
+    if gemini_mounted(name):
+        out = run("umount", target, check=False)
+        if out.returncode != 0:
+            die(f"could not unmount {target}: {out.stderr.strip()}. no lazy umount, sort it out by hand")
+    if os.path.isdir(target) and not os.listdir(target):
+        os.rmdir(target)
+
+
+def gemini_mount(name, uid):
+    src = os.path.join(pwd.getpwnam(name).pw_dir, "public_gemini")
+    try:
+        st = os.lstat(src)
+    except FileNotFoundError:
+        return f"{name}: no public_gemini"
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid:
+        return f"{name}: public_gemini is not a directory owned by {name}, skipped"
+    if gemini_mounted(name):
+        return None
+    target = gemini_target(name)
+    os.makedirs(target, mode=0o755, exist_ok=True)
+    run("mount", "--bind", src, target)
+    run("mount", "-o", "remount,bind,ro,nosuid,nodev,noexec", target)
+    return None
+
+
+def gemini_sync(db):
+    os.makedirs(GEMINI_USERS, mode=0o755, exist_ok=True)
+    active = {m["username"]: m["uid"] for m in db if m["status"] == "active"}
+    problems = []
+    for name, uid in active.items():
+        msg = gemini_mount(name, uid)
+        if msg:
+            problems.append(msg)
+    for name in os.listdir(GEMINI_USERS):
+        if name not in active:
+            gemini_unmount(name)
+    return problems
+
 def welcome_text(name):
     return f"""Hi {name},
 
@@ -194,22 +214,25 @@ runv.club
 
 
 def cmd_add(args, conf, db):
-    name = args.name
-    if not NAME_RE.match(name):
-        die("names are 2 to 16 chars, lowercase letters, digits and _, starting with a letter")
-    if name in RESERVED or name.startswith("runv"):
-        die(f"{name} is reserved")
-    if find(db, name) or exists_on_system(name):
-        die(f"{name} is taken")
-    if not EMAIL_RE.match(args.email):
-        die("that email address looks wrong")
     key = args.key
     if args.key_file:
         with open(args.key_file) as f:
             key = f.read()
     if not key:
         die("need --key or --key-file")
-    key, fingerprint = check_key(key)
+    try:
+        name = runvcheck.username(args.name)
+        mail = runvcheck.email(args.email)
+        key, fingerprint = runvcheck.ssh_key(key)
+    except ValueError as e:
+        die(str(e))
+    create(conf, db, name, mail, key, fingerprint)
+
+
+def create(conf, db, name, mail, key, fingerprint):
+    """Make the account. Also used by runv-queue approve."""
+    if find(db, name) or exists_on_system(name):
+        die(f"{name} is taken")
 
     m = conf["members"]
     uid = next_uid(m.getint("uid_min"))
@@ -238,15 +261,16 @@ def cmd_add(args, conf, db):
     db.append({
         "username": name,
         "uid": uid,
-        "email": args.email,
+        "email": mail,
         "key_fingerprint": fingerprint,
         "status": "active",
         "created_at": now().isoformat(),
     })
     save_db(db)
+    gemini_sync(db)
     log(f"add {name} uid={uid} key={fingerprint}")
 
-    sent = runvmail.send(args.email, "Welcome to runv.club", welcome_text(name))
+    sent = runvmail.send(mail, "Welcome to runv.club", welcome_text(name))
     print(f"{name} created (uid {uid}, {fingerprint})" + ("" if sent else ", welcome mail not sent"))
 
 
@@ -267,11 +291,14 @@ def cmd_suspend(args, conf, db):
     m = member_or_die(db, args.name, "active")
     run("usermod", "--lock", "--expiredate", "1", m["username"])
     stop_sessions(m["username"])
+    # web, gemini and gopher can't get in anymore
+    os.chmod(pwd.getpwnam(m["username"]).pw_dir, 0o700)
     m["status"] = "suspended"
     m["suspended_at"] = now().isoformat()
     if args.reason:
         m["suspend_reason"] = args.reason
     save_db(db)
+    gemini_sync(db)
     log(f"suspend {m['username']} reason={args.reason or '-'}")
     print(f"{m['username']} suspended")
 
@@ -279,10 +306,12 @@ def cmd_suspend(args, conf, db):
 def cmd_unsuspend(args, conf, db):
     m = member_or_die(db, args.name, "suspended")
     run("usermod", "--unlock", "--expiredate", "", m["username"])
+    os.chmod(pwd.getpwnam(m["username"]).pw_dir, 0o711)
     m["status"] = "active"
     m.pop("suspended_at", None)
     m.pop("suspend_reason", None)
     save_db(db)
+    gemini_sync(db)
     log(f"unsuspend {m['username']}")
     print(f"{m['username']} active again")
 
@@ -297,6 +326,7 @@ def cmd_delete(args, conf, db):
 
     run("usermod", "--lock", "--expiredate", "1", name)
     stop_sessions(name)
+    gemini_unmount(name)
 
     quarantine = conf["delete"]["quarantine"]
     stamp = now().strftime("%Y%m%d-%H%M%S")
@@ -350,6 +380,11 @@ def cmd_purge(args, conf, db):
         save_db(db)
 
 
+def cmd_gemini_sync(args, conf, db):
+    for line in gemini_sync(db):
+        print(line)
+
+
 def main():
     if os.geteuid() != 0:
         die("run me as root")
@@ -368,6 +403,7 @@ def main():
     s = sub.add_parser("suspend")
     s.add_argument("name")
     s.add_argument("--reason")
+    sub.add_parser("gemini-sync")
     pu = sub.add_parser("purge")
     pu.add_argument("--now", metavar="NAME")
 
@@ -376,7 +412,7 @@ def main():
     with open(LOCK, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         db = load_db()
-        globals()[f"cmd_{args.cmd}"](args, conf, db)
+        globals()[f"cmd_{args.cmd.replace('-', '_')}"](args, conf, db)
 
 
 if __name__ == "__main__":

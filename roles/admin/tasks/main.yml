@@ -12,7 +12,7 @@
   loop: "{{ secrets.results }}"
   when: not item.stat.exists
 
-- name: state and cache dirs
+- name: restic cache dir
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
@@ -20,7 +20,6 @@
     group: root
     mode: "0700"
   loop:
-    - /var/lib/runv/queue
     - /var/cache/restic
 
 - name: lib dir
@@ -31,13 +30,16 @@
     group: root
     mode: "0755"
 
-- name: mail helper
+- name: shared python helpers
   ansible.builtin.copy:
-    src: runvmail.py
-    dest: /usr/local/lib/runv/runvmail.py
+    src: "{{ item }}"
+    dest: /usr/local/lib/runv/{{ item }}
     owner: root
     group: root
     mode: "0644"
+  loop:
+    - runvmail.py
+    - runvcheck.py
 
 - name: admin commands
   ansible.builtin.copy:
@@ -48,6 +50,7 @@
     mode: "0755"
   loop:
     - runv-user
+    - runv-queue
     - runv-backup
     - runv-alert
     - runv-weekly
@@ -88,6 +91,12 @@
     - runv-purge.timer
     - runv-weekly.service
     - runv-weekly.timer
+    - runv-queue-notify.path
+    - runv-queue-notify.service
+    - runv-queue-notify.timer
+    - runv-queue-tick.service
+    - runv-queue-tick.timer
+    - runv-gemini-sync.service
   notify: daemon reload
 
 - name: reload units now
@@ -103,3 +112,16 @@
     - runv-backup-instant.path
     - runv-purge.timer
     - runv-weekly.timer
+    - runv-queue-notify.path
+    - runv-queue-notify.timer
+    - runv-queue-tick.timer
+
+- name: gemini mounts at boot
+  ansible.builtin.systemd_service:
+    name: runv-gemini-sync.service
+    enabled: true
+
+- name: old queue location
+  ansible.builtin.file:
+    path: /var/lib/runv/queue
+    state: absent

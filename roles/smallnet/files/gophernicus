@@ -1,0 +1,2 @@
+# -nx no executable gophermaps, -nt no /server-status, -np no proxy protocol
+OPTIONS=-h runv.club -r /var/gopher -nv -nx -nt -np -nf
