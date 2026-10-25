@@ -44,6 +44,14 @@
     group: root
     mode: "0755"
 
+- name: dashboard
+  ansible.builtin.copy:
+    src: runv
+    dest: /usr/local/bin/runv
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: help topics
   ansible.builtin.copy:
     src: help/

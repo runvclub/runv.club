@@ -1,0 +1,105 @@
+#!/usr/bin/python3 -I
+# the few things a member needs root for, run through sudo by `runv`.
+# it only ever acts on the member who called it (SUDO_USER) and takes no
+# free-form arguments.
+#
+#   runv-priv whoami        the member's own record, as json
+#   runv-priv token irc     new password for the irc bouncer
+#   runv-priv token ntfy    new token for ntfy.runv.club
+import argparse
+import json
+import os
+import pwd
+import secrets
+import subprocess
+import sys
+
+DB = "/var/lib/runv/members.json"
+
+
+def die(msg):
+    print(f"runv: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def caller():
+    name = os.environ.get("SUDO_USER", "")
+    try:
+        with open(DB) as f:
+            db = json.load(f)
+    except FileNotFoundError:
+        db = []
+    for m in db:
+        if m["username"] == name and m["status"] == "active":
+            if pwd.getpwnam(name).pw_uid != m["uid"]:
+                break
+            return m
+    die("this only works for runv.club members")
+
+
+def save_for_member(m, fname, text):
+    """Leave a secret in ~/.config/runv, readable only by the member.
+
+    The writing happens as the member, so whatever they put in the way
+    (a symlink, say) can only point at their own files.
+    """
+    script = 'umask 077; d="$HOME/.config/runv"; mkdir -p "$d"; cat > "$d/$1.new" && mv -f "$d/$1.new" "$d/$1"'
+    home = pwd.getpwnam(m["username"]).pw_dir
+    subprocess.run(["runuser", "-u", m["username"], "--", "env", "HOME=" + home,
+                    "sh", "-c", script, "sh", fname],
+                   input=text + "\n", text=True, check=True, capture_output=True)
+    return "~/.config/runv/" + fname
+
+
+def token_irc(m):
+    if not os.path.exists("/usr/bin/sojuctl"):
+        die("the irc bouncer isn't set up yet")
+    password = secrets.token_urlsafe(24)
+    sojuctl = ["sojuctl", "-config", "/etc/soju/config"]
+    users = subprocess.run(sojuctl + ["user", "status"], capture_output=True, text=True).stdout
+    verb = "update" if any(l.split()[:1] == [m["username"]] for l in users.splitlines()) else "create"
+    out = subprocess.run(sojuctl + ["user", verb, m["username"], "-password", password],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        die("the bouncer said no: " + (out.stderr or out.stdout).strip()[:200])
+    return password, save_for_member(m, "irc-token", password)
+
+
+def token_ntfy(m):
+    if not os.path.exists("/usr/bin/ntfy"):
+        die("ntfy isn't set up yet")
+    name = m["username"]
+    env = dict(os.environ, NTFY_PASSWORD=secrets.token_urlsafe(24))
+    users = subprocess.run(["ntfy", "user", "list"], capture_output=True, text=True)
+    if f"user {name} " not in users.stdout + users.stderr:
+        subprocess.run(["ntfy", "user", "add", name], env=env, check=True, capture_output=True)
+        subprocess.run(["ntfy", "access", name, f"{name}-*", "rw"], check=True, capture_output=True)
+    else:
+        subprocess.run(["ntfy", "token", "remove", name, "--all"], capture_output=True)
+    out = subprocess.run(["ntfy", "token", "add", name], capture_output=True, text=True)
+    token = next((w for w in (out.stdout + out.stderr).split() if w.startswith("tk_")), None)
+    if not token:
+        die("ntfy didn't hand out a token")
+    return token, save_for_member(m, "ntfy-token", token)
+
+
+def main():
+    if os.geteuid() != 0:
+        die("run this through runv")
+    p = argparse.ArgumentParser(prog="runv-priv")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("whoami")
+    t = sub.add_parser("token")
+    t.add_argument("service", choices=["irc", "ntfy"])
+    args = p.parse_args()
+
+    m = caller()
+    if args.cmd == "whoami":
+        print(json.dumps({k: m.get(k) for k in ("username", "created_at", "status", "i2p")}))
+        return
+    token, where = {"irc": token_irc, "ntfy": token_ntfy}[args.service](m)
+    print(json.dumps({"token": token, "saved": where}))
+
+
+if __name__ == "__main__":
+    main()

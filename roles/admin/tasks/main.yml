@@ -54,6 +54,19 @@
     - runv-backup
     - runv-alert
     - runv-weekly
+    - runv-priv
+
+# members reach runv-priv through sudo, and nothing else. it works out who
+# called it from SUDO_USER and takes fixed subcommands only
+- name: members can run runv-priv
+  ansible.builtin.copy:
+    content: |
+      %members ALL=(root) NOPASSWD: /usr/local/sbin/runv-priv
+    dest: /etc/sudoers.d/60-runv-members
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
 
 - name: backup path lists
   ansible.builtin.template:

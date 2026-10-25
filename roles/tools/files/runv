@@ -1,0 +1,507 @@
+#!/usr/bin/python3 -I
+# runv, the member dashboard. every screen also prints as plain text, so
+# `runv keys` or `runv analytics` work in scripts too.
+import curses
+import datetime
+import glob
+import json
+import locale
+import os
+import pwd
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, "/usr/local/lib/runv")
+import runvcheck  # noqa: E402
+
+USER = pwd.getpwuid(os.getuid()).pw_name
+HOME = pwd.getpwuid(os.getuid()).pw_dir
+CONF = os.path.join(HOME, ".config", "runv")
+STATS = f"/var/lib/runv/stats/{USER}"
+KEYS = os.path.join(HOME, ".ssh", "authorized_keys")
+
+# name shown, systemd unit. units that don't exist yet are left out
+SERVICES = [
+    ("web", "nginx.service"),
+    ("gemini", "molly-brown@runv.club.service"),
+    ("gopher", "gophernicus.socket"),
+    ("i2p", "i2pd.service"),
+    ("git", "forgejo.service"),
+    ("links", "linkding.service"),
+    ("irc bouncer", "soju.service"),
+    ("ntfy", "ntfy.service"),
+    ("feeds", "miniflux.service"),
+    ("forum", "bbj.service"),
+    ("finger", "runv-finger.socket"),
+    ("signups", "runv-join.service"),
+]
+
+
+USAGE = """\
+runv                      the dashboard
+runv status|keys|tokens|pages|blog|pastes|logs|analytics|apps|twtxt
+runv keys add [FILE]      add a public key (reads stdin without FILE)
+runv keys rm N            remove key number N
+runv token irc|ntfy       new password for that service
+runv analytics on|off     count visits to your pages, or stop"""
+
+
+class Oops(Exception):
+    pass
+
+
+def run(*cmd, inp=None):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, input=inp, timeout=20)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise Oops(str(e))
+
+
+def priv(*args):
+    out = run("sudo", "-n", "/usr/local/sbin/runv-priv", *args)
+    if out.returncode != 0:
+        raise Oops(out.stderr.strip().removeprefix("runv: ") or "that didn't work")
+    return json.loads(out.stdout)
+
+
+def day(ts):
+    return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d") if ts else "-"
+
+
+def files_in(path, pattern="*"):
+    return [f for f in glob.glob(os.path.join(path, "**", pattern), recursive=True)
+            if os.path.isfile(f) and not os.path.basename(f).startswith(".")]
+
+
+def span(files):
+    times = sorted(os.path.getmtime(f) for f in files)
+    return (day(times[0]), day(times[-1])) if times else ("-", "-")
+
+
+def read_lines(path, n=None):
+    try:
+        with open(path, errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return []
+    return lines[-n:] if n else lines
+
+
+# a view returns a list of boxes: (title, rows). a row is a string or a
+# (left, right) pair; right can be (text, color) with color in COLORS
+def view_status():
+    try:
+        me = priv("whoami")
+    except Oops:
+        me = {}
+    joined = (me.get("created_at") or "")[:10] or "-"
+    q = run("quota", "-w", "-u", USER).stdout.splitlines()
+    disk = "-"
+    if len(q) >= 3:
+        f = q[2].split()
+        if len(f) >= 3 and f[2].isdigit() and int(f[2]):
+            disk = f"{int(f[1].rstrip('*')) // 1024}M of {int(f[2]) // 1024 // 1024}G"
+    info = [("user", USER), ("joined", joined), ("disk", disk)]
+
+    units = [u for _, u in SERVICES]
+    out = run("systemctl", "show", "-p", "Id,LoadState,ActiveState", *units).stdout
+    state = {}
+    for block in out.strip().split("\n\n"):
+        kv = dict(l.split("=", 1) for l in block.splitlines() if "=" in l)
+        if kv.get("LoadState") == "loaded":
+            state[kv["Id"]] = kv.get("ActiveState", "?")
+    services = [(name, (state[u], "green" if state[u] == "active" else "red"))
+                for name, u in SERVICES if u in state]
+
+    web = files_in(os.path.join(HOME, "public_html"))
+    gem = files_in(os.path.join(HOME, "public_gemini"))
+    goph = files_in(os.path.join(HOME, "public_gopher"))
+    pages = [("web files", str(len(web))), ("gemini files", str(len(gem))),
+             ("gopher files", str(len(goph))), ("last change", span(web + gem + goph)[1])]
+    posts = files_in(os.path.join(HOME, "blog"), "*.md")
+    pastes = files_in(os.path.join(HOME, "public_html", "p"))
+    tw = [l for l in read_lines(os.path.join(HOME, "public_html", "twtxt.txt")) if l and l[0] != "#"]
+    return [("info", info), ("services", services), ("pages", pages),
+            ("blog", [("posts", str(len(posts))), ("oldest", span(posts)[0]), ("newest", span(posts)[1])]),
+            ("pastes", [("pastes", str(len(pastes))), ("newest", span(pastes)[1])]),
+            ("twtxt", [("entries", str(len(tw)))])]
+
+
+def key_list():
+    lines = [l.strip() for l in read_lines(KEYS)]
+    keys = [l for l in lines if l and not l.startswith("#")]
+    rows = []
+    for i, k in enumerate(keys, 1):
+        fp = run("ssh-keygen", "-l", "-f", "-", inp=k + "\n").stdout.split()
+        rows.append((str(i), f"{fp[-1].strip('()') if fp else '?':<8} "
+                             f"{fp[1][:24] + '…' if len(fp) > 1 else 'unreadable'} "
+                             f"{' '.join(k.split()[2:])[:20]}"))
+    return keys, rows
+
+
+def write_keys(keys):
+    tmp = KEYS + ".new"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write("".join(k + "\n" for k in keys))
+    os.replace(tmp, KEYS)
+
+
+def keys_add(line):
+    try:
+        key, fp = runvcheck.ssh_key(line)
+    except ValueError as e:
+        raise Oops(str(e))
+    keys, _ = key_list()
+    if any(k.split()[:2] == key.split()[:2] for k in keys):
+        raise Oops("that key is already there")
+    write_keys(keys + [key])
+    return f"added {fp}. git.runv.club keeps its own keys, add it there too if you want"
+
+
+def keys_rm(n):
+    keys, _ = key_list()
+    if not n.isdigit() or not 1 <= int(n) <= len(keys):
+        raise Oops(f"there is no key {n}")
+    if len(keys) == 1:
+        raise Oops("that's your only key. add another one first, or you'd be locked out")
+    keys.pop(int(n) - 1)
+    write_keys(keys)
+    return f"key {n} removed"
+
+
+def view_keys():
+    _, rows = key_list()
+    return [("ssh keys", rows or ["no keys? then how did you get in"]),
+            ("how", ["a  add a key (paste it)", "d  remove one by number",
+                     "or: runv keys add < key.pub"])]
+
+
+TOKENS = {"irc": "irc bouncer, irc.runv.club:6697 and chat.runv.club",
+          "ntfy": "ntfy.runv.club, for pub/sub and notifications"}
+
+
+def view_tokens():
+    rows = []
+    for name, what in TOKENS.items():
+        have = os.path.exists(os.path.join(CONF, f"{name}-token"))
+        rows.append((name, ("set" if have else "none", "green" if have else "dim")))
+    return [("tokens", rows),
+            ("what for", [f"{n}: {w}" for n, w in TOKENS.items()]),
+            ("how", ["i  new irc token", "n  new ntfy token",
+                     "a new token replaces the old one", "they are saved in ~/.config/runv"])]
+
+
+def token_new(service):
+    r = priv("token", service)
+    return f"new {service} token: {r['token']}  (also in {r['saved']})"
+
+
+def analytics_on():
+    return os.path.exists(os.path.join(CONF, "analytics"))
+
+
+def analytics_set(on):
+    path = os.path.join(CONF, "analytics")
+    if on:
+        os.makedirs(CONF, mode=0o700, exist_ok=True)
+        with open(path, "w") as f:
+            f.write("on\n")
+        return "analytics on. numbers show up within the hour"
+    if os.path.exists(path):
+        os.remove(path)
+    return "analytics off. what was counted so far is kept for a year"
+
+
+def view_analytics():
+    state = ("on", "green") if analytics_on() else ("off", "dim")
+    boxes = [("analytics", [("counting", state), ("toggle", "t")])]
+    try:
+        with open(os.path.join(STATS, "summary.json")) as f:
+            s = json.load(f)
+    except (OSError, ValueError):
+        return boxes + [("numbers", ["nothing counted yet"])]
+    boxes.append(("unique visitors", [(k, str(v)) for k, v in s.get("visitors", {}).items()]))
+    boxes.append(("top pages, 30 days", [(p[:30], str(n)) for p, n in s.get("pages", [])[:10]] or ["-"]))
+    boxes.append(("top referrers, 30 days", [(r[:30], str(n)) for r, n in s.get("referrers", [])[:10]] or ["-"]))
+    boxes.append(("updated", [s.get("updated", "-")]))
+    return boxes
+
+
+def view_logs():
+    lines = read_lines(os.path.join(STATS, "access.log"), 60)
+    return [("access log, last 14 days, addresses masked", lines or ["nothing yet"])]
+
+
+def view_pages():
+    try:
+        i2p = priv("whoami").get("i2p")
+    except Oops:
+        i2p = None
+    rows = [f"https://runv.club/~{USER}/", f"gemini://runv.club/~{USER}/",
+            f"gopher://runv.club/1/~{USER}"]
+    if i2p:
+        rows.append(f"http://{i2p}/")
+    return [("your pages", rows),
+            ("folders", ["~/public_html", "~/public_gemini", "~/public_gopher", "~/public_i2p"])]
+
+
+def view_blog():
+    posts = sorted(files_in(os.path.join(HOME, "blog"), "*.md"), key=os.path.getmtime, reverse=True)
+    rows = [(os.path.basename(p)[:-3][:32], day(os.path.getmtime(p))) for p in posts[:15]]
+    return [("posts", rows or ["no posts yet"]),
+            ("how", ["write markdown in ~/blog/name.md, or from your machine:",
+                     "  scp post.md runv.club:blog/",
+                     f"it shows up at https://runv.club/~{USER}/blog/", "and on gemini and gopher too"])]
+
+
+def view_pastes():
+    pastes = sorted(files_in(os.path.join(HOME, "public_html", "p")), key=os.path.getmtime, reverse=True)
+    rows = [(os.path.basename(p)[:32], day(os.path.getmtime(p))) for p in pastes[:15]]
+    return [("pastes", rows or ["no pastes yet"]),
+            ("how", ["git diff | paste", "paste notes.txt --expire 7d"])]
+
+
+def view_apps():
+    sock = f"/run/runv-apps/{USER}/app.sock"
+    unit = run("systemctl", "--user", "is-active", "runv-app.service").stdout.strip() or "-"
+    return [("your app", [("service", (unit, "green" if unit == "active" else "dim")),
+                          ("socket", ("listening" if os.path.exists(sock) else "none",
+                                      "green" if os.path.exists(sock) else "dim")),
+                          ("address", f"/~{USER}/app/")]),
+            ("how", ["type: help apps"])]
+
+
+def view_twtxt():
+    own = [l for l in read_lines(os.path.join(HOME, "public_html", "twtxt.txt"), 15) if l and l[0] != "#"]
+    return [("your twtxt", [l.split("\t", 1)[-1][:60] for l in own] or ["nothing yet"]),
+            ("how", ['tw "hello world"', "tw timeline"])]
+
+
+VIEWS = {
+    "status": view_status, "keys": view_keys, "tokens": view_tokens, "pages": view_pages,
+    "blog": view_blog, "pastes": view_pastes, "logs": view_logs, "analytics": view_analytics,
+    "apps": view_apps, "twtxt": view_twtxt,
+}
+MENU = ["status", "keys", "tokens", "pages", "blog", "pastes", "logs", "analytics",
+        "apps", "twtxt", "chat", "quit"]
+
+
+def print_view(boxes):
+    for title, rows in boxes:
+        print(f"== {title}")
+        for r in rows:
+            if isinstance(r, tuple):
+                right = r[1][0] if isinstance(r[1], tuple) else r[1]
+                print(f"   {r[0]:<16} {right}")
+            else:
+                print(f"   {r}")
+        print()
+
+
+# the screen
+COLORS = {}
+
+
+def setup_colors():
+    curses.curs_set(0)
+    if not curses.has_colors():
+        return
+    curses.start_color()
+    try:
+        curses.use_default_colors()
+        bg = -1
+    except curses.error:
+        bg = curses.COLOR_BLACK
+    for i, (name, c) in enumerate([("accent", curses.COLOR_MAGENTA), ("green", curses.COLOR_GREEN),
+                                   ("red", curses.COLOR_RED), ("yellow", curses.COLOR_YELLOW),
+                                   ("title", curses.COLOR_CYAN), ("dim", curses.COLOR_WHITE)], 1):
+        curses.init_pair(i, c, bg)
+        COLORS[name] = curses.color_pair(i) | (curses.A_DIM if name == "dim" else 0)
+
+
+def put(win, y, x, text, attr=0):
+    h, w = win.getmaxyx()
+    if 0 <= y < h and x < w:
+        try:
+            win.addnstr(y, x, text, w - x - 1, attr)
+        except curses.error:
+            pass
+
+
+def box(win, y, x, h, w, title, color):
+    if h < 2 or w < 4:
+        return
+    attr = COLORS.get(color, 0)
+    put(win, y, x, "╭" + "─" * (w - 2) + "╮", attr)
+    for i in range(1, h - 1):
+        put(win, y + i, x, "│", attr)
+        put(win, y + i, x + w - 1, "│", attr)
+    put(win, y + h - 1, x, "╰" + "─" * (w - 2) + "╯", attr)
+    put(win, y, x + 2, f" {title} ", COLORS.get("title", 0) | curses.A_BOLD)
+
+
+def draw_rows(win, y, x, w, rows):
+    for i, r in enumerate(rows):
+        if isinstance(r, tuple):
+            left, right = r
+            color = None
+            if isinstance(right, tuple):
+                right, color = right
+            put(win, y + i, x, f"{left:<15}"[:w])
+            put(win, y + i, x + 16, str(right)[:max(w - 16, 0)], COLORS.get(color, 0))
+        else:
+            put(win, y + i, x, str(r)[:w])
+
+
+def prompt(scr, label):
+    h, w = scr.getmaxyx()
+    scr.move(h - 1, 0)
+    scr.clrtoeol()
+    put(scr, h - 1, 0, label, COLORS.get("yellow", 0))
+    curses.echo()
+    curses.curs_set(1)
+    try:
+        raw = scr.getstr(h - 1, len(label), 4000)
+    finally:
+        curses.noecho()
+        curses.curs_set(0)
+    return raw.decode(errors="replace").strip()
+
+
+def dash(scr):
+    setup_colors()
+    sel, scroll, msg = 0, 0, ""
+    cache = {}
+    while True:
+        name = MENU[sel]
+        if name in VIEWS and name not in cache:
+            try:
+                cache[name] = VIEWS[name]()
+            except Oops as e:
+                cache[name] = [(name, [str(e)])]
+        scr.erase()
+        h, w = scr.getmaxyx()
+        if h < 20 or w < 70:
+            put(scr, 0, 0, "make the window at least 70x20, or press q")
+            if scr.getch() in (ord("q"), 27):
+                return None
+            continue
+
+        put(scr, 0, 1, " runv.club ", COLORS.get("accent", 0) | curses.A_REVERSE)
+        put(scr, 0, 13, f"• dash • {USER}", COLORS.get("green", 0))
+
+        mw = 18
+        box(scr, 2, 1, len(MENU) + 2, mw, "menu", "yellow")
+        for i, item in enumerate(MENU):
+            attr = curses.A_REVERSE | curses.A_BOLD if i == sel else 0
+            put(scr, 3 + i, 3, f" {item} ".ljust(mw - 4), attr)
+
+        boxes = cache.get(name, [])
+        x0 = mw + 3
+        room = w - x0 - 1
+        # two columns when there's space, each box goes to the shorter one
+        ncol = 2 if room >= 76 and len(boxes) > 1 else 1
+        bw = (room - (ncol - 1) * 2) // ncol
+        ys = [2 - scroll] * ncol
+        for title, rows in boxes:
+            c = ys.index(min(ys))
+            x, y = x0 + c * (bw + 2), ys[c]
+            bh = len(rows) + 2
+            if y + bh > 1 and y < h - 2:
+                box(scr, y, x, bh, bw, title, "accent")
+                draw_rows(scr, y + 1, x + 2, bw - 4, rows)
+            ys[c] = y + bh + 1
+        overflow = max(ys) + scroll > h - 2
+
+        hint = "↑↓ pick · enter open · r refresh · q quit"
+        if overflow:
+            hint += " · pgup/pgdn scroll"
+        if name == "keys":
+            hint = "a add · d delete · " + hint
+        elif name == "tokens":
+            hint = "i irc · n ntfy · " + hint
+        elif name == "analytics":
+            hint = "t toggle · " + hint
+        put(scr, h - 1, 0, msg or hint, COLORS.get("yellow" if msg else "dim", 0))
+        scr.refresh()
+
+        k = scr.getch()
+        msg = ""
+        try:
+            if k in (ord("q"), 27):
+                return None
+            elif k in (curses.KEY_UP, ord("k")):
+                sel, scroll = (sel - 1) % len(MENU), 0
+            elif k in (curses.KEY_DOWN, ord("j"), 9):
+                sel, scroll = (sel + 1) % len(MENU), 0
+            elif k == curses.KEY_NPAGE:
+                scroll += h // 2
+            elif k == curses.KEY_PPAGE:
+                scroll = max(0, scroll - h // 2)
+            elif k == ord("r"):
+                cache.clear()
+            elif k in (10, 13, curses.KEY_ENTER, curses.KEY_RIGHT, ord("l")):
+                if name == "quit":
+                    return None
+                if name == "chat":
+                    return "chat"
+            elif name == "keys" and k == ord("a"):
+                line = prompt(scr, "paste the public key, then enter: ")
+                if line:
+                    msg = keys_add(line)
+                    cache.pop("keys", None)
+            elif name == "keys" and k == ord("d"):
+                n = prompt(scr, "remove key number: ")
+                if n:
+                    msg = keys_rm(n)
+                    cache.pop("keys", None)
+            elif name == "tokens" and k in (ord("i"), ord("n")):
+                msg = token_new("irc" if k == ord("i") else "ntfy")
+                cache.pop("tokens", None)
+            elif name == "analytics" and k == ord("t"):
+                msg = analytics_set(not analytics_on())
+                cache.pop("analytics", None)
+        except Oops as e:
+            msg = str(e)
+
+
+def main():
+    args = sys.argv[1:]
+    try:
+        if not args:
+            if not sys.stdout.isatty():
+                print_view(view_status())
+                return
+            locale.setlocale(locale.LC_ALL, "")
+            os.environ.setdefault("ESCDELAY", "25")
+            if curses.wrapper(dash) == "chat":
+                os.execvp("chat", ["chat"])
+            return
+        cmd, rest = args[0], args[1:]
+        if cmd in ("-h", "--help", "help"):
+            print(USAGE)
+        elif cmd == "keys" and rest[:1] == ["add"]:
+            src = open(rest[1]) if len(rest) > 1 else sys.stdin
+            print(keys_add(src.read()))
+        elif cmd == "keys" and rest[:1] == ["rm"] and len(rest) == 2:
+            print(keys_rm(rest[1]))
+        elif cmd == "token" and rest and rest[0] in TOKENS:
+            print(token_new(rest[0]))
+        elif cmd == "analytics" and rest and rest[0] in ("on", "off"):
+            print(analytics_set(rest[0] == "on"))
+        elif cmd in VIEWS and not rest:
+            print_view(VIEWS[cmd]())
+        else:
+            print("runv: unknown command, try runv help", file=sys.stderr)
+            sys.exit(2)
+    except Oops as e:
+        print(f"runv: {e}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()
