@@ -1,0 +1,7 @@
+# names on the one certificate. the first is the cert name
+web_cert_names:
+  - runv.club
+  - www.runv.club
+  - mail.runv.club
+  - git.runv.club
+  - links.runv.club

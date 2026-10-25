@@ -81,15 +81,21 @@
 - name: apply nginx changes before asking for a cert
   ansible.builtin.meta: flush_handlers
 
-- name: get the certificate
+- name: names on the current certificate
+  ansible.builtin.shell: >
+    openssl x509 -in /etc/letsencrypt/live/runv.club/fullchain.pem -noout -ext subjectAltName
+    | grep -o 'DNS:[^,]*' | cut -d: -f2 | sort
+  register: cert_names
+  changed_when: false
+  failed_when: false
+
+- name: get or expand the certificate
   ansible.builtin.command: >
     certbot certonly --webroot -w /var/www/acme
-    -d runv.club -d www.runv.club
-    --cert-name runv.club --agree-tos --register-unsafely-without-email
+    {% for n in web_cert_names %}-d {{ n }} {% endfor %}
+    --cert-name runv.club --expand --agree-tos --register-unsafely-without-email
     --non-interactive
-  args:
-    creates: /etc/letsencrypt/live/runv.club/fullchain.pem
-  register: certbot_run
+  when: (web_cert_names | sort) != (cert_names.stdout_lines | default([]))
 
 - name: reload nginx after renewals
   ansible.builtin.copy:

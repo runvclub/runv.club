@@ -1,7 +1,7 @@
 server {
     listen 80;
     listen [::]:80;
-    server_name runv.club www.runv.club;
+    server_name {{ web_cert_names | join(' ') }};
 
     location /.well-known/acme-challenge/ {
         root /var/www/acme;
@@ -9,7 +9,7 @@ server {
 
     location / {
 {% if have_cert %}
-        return 301 https://runv.club$request_uri;
+        return 301 https://$host$request_uri;
 {% else %}
         root /var/www/runv;
         try_files $uri /index.html;
