@@ -97,6 +97,7 @@
     - runv-queue-tick.service
     - runv-queue-tick.timer
     - runv-gemini-sync.service
+    - runv-i2p-sync.service
   notify: daemon reload
 
 - name: reload units now

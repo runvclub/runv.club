@@ -9,12 +9,14 @@
     runv-user delete NAME
     runv-user purge [--now NAME]
     runv-user gemini-sync
+    runv-user i2p-sync
 
 Only accounts created by this tool can be touched. Deleted homes go to a
 quarantine dir first and are removed by `purge` after the configured days.
 """
 
 import argparse
+import base64
 import configparser
 import datetime as dt
 import fcntl
@@ -22,11 +24,13 @@ import json
 import os
 import pwd
 import grp
+import hashlib
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, "/usr/local/lib/runv")
 import runvcheck  # noqa: E402
@@ -38,6 +42,8 @@ LOCK = "/var/lib/runv/.lock"
 LOG = "/var/log/runv/users.log"
 SLICE_DIR = "/etc/systemd/system/user-{uid}.slice.d"
 GEMINI_USERS = "/var/gemini/users"
+I2P_TUNNELS = "/etc/i2pd/tunnels.d"
+I2P_KEYS = "/var/lib/i2pd/runv"
 
 def die(msg):
     print(f"runv-user: {msg}", file=sys.stderr)
@@ -197,21 +203,119 @@ def gemini_sync(db):
             gemini_unmount(name)
     return problems
 
-def welcome_text(name):
+
+# one i2pd server tunnel per member. the key file is the address, so it
+# is never deleted while the account exists, only the tunnel comes and goes
+def i2p_conf(name):
+    return os.path.join(I2P_TUNNELS, f"runv-{name}.conf")
+
+
+def i2p_key(name):
+    return os.path.join(I2P_KEYS, f"{name}.dat")
+
+
+def i2p_tunnel_on(name):
+    if not os.path.isdir(I2P_TUNNELS):
+        return False
+    text = (
+        f"[runv-{name}]\n"
+        "type = http\n"
+        "host = 127.0.0.1\n"
+        "port = 7980\n"
+        f"hostoverride = {name}\n"
+        f"keys = runv/{name}.dat\n"
+    )
+    path = i2p_conf(name)
+    if os.path.exists(path) and open(path).read() == text:
+        return False
+    with open(path, "w") as f:
+        f.write(text)
+    return True
+
+
+def i2p_tunnel_off(name):
+    if os.path.exists(i2p_conf(name)):
+        os.remove(i2p_conf(name))
+        return True
+    return False
+
+
+def i2p_reload():
+    run("systemctl", "reload", "i2pd", check=False)
+
+
+def i2p_address(name, wait=0):
+    """b32 address from the key file: sha256 of the public destination."""
+    path = i2p_key(name)
+    deadline = time.time() + wait
+    while not os.path.exists(path) and time.time() < deadline:
+        time.sleep(1)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        data = f.read()
+    cert_len = int.from_bytes(data[385:387], "big")
+    dest = data[:387 + cert_len]
+    b32 = base64.b32encode(hashlib.sha256(dest).digest()).decode().lower().rstrip("=")
+    return f"{b32}.b32.i2p"
+
+
+def i2p_sync(db):
+    changed = False
+    active = {m["username"] for m in db if m["status"] == "active"}
+    for name in active:
+        changed |= i2p_tunnel_on(name)
+    if os.path.isdir(I2P_TUNNELS):
+        for f in os.listdir(I2P_TUNNELS):
+            if f.startswith("runv-") and f.endswith(".conf") and f[5:-5] not in active:
+                os.remove(os.path.join(I2P_TUNNELS, f))
+                changed = True
+    if changed:
+        i2p_reload()
+    filled = False
+    for m in db:
+        if m["status"] == "active" and not m.get("i2p"):
+            m["i2p"] = i2p_address(m["username"], wait=30 if changed else 0)
+            if m["i2p"]:
+                filled = True
+                i2p_note(m["username"], m["i2p"])
+    return filled
+
+
+def i2p_note(name, address):
+    """Leave the address where the member can read it."""
+    path = os.path.join(pwd.getpwnam(name).pw_dir, ".i2p-address")
+    with open(path, "w") as f:
+        f.write(address + "\n")
+    os.chmod(path, 0o644)
+    shutil.chown(path, name, name)
+
+def welcome_text(name, i2p=None):
+    i2p_line = f"    http://{i2p}/\n        ~/public_i2p\n" if i2p else ""
     return f"""Hi {name},
 
 Your runv.club account is ready. Log in with the key you sent us:
 
     ssh {name}@runv.club
 
-Your home already has public_html, public_gemini, public_gopher and
-public_i2p. Type `help` once you are in if you get lost, and come say hi
-on IRC.
+Your pages are already up, with a placeholder in each one. Edit the
+folder under each address to change it:
+
+    https://runv.club/~{name}/
+        ~/public_html
+    gemini://runv.club/~{name}/
+        ~/public_gemini
+    gopher://runv.club/1/~{name}
+        ~/public_gopher
+{i2p_line}
+Type `help` once you're in. Type `chat` to talk to the rest of us in
+#runv on tilde.chat.
+
+The rules are at https://runv.club/rules
 
 See you around,
 runv.club
 """
-
 
 def cmd_add(args, conf, db):
     key = args.key
@@ -268,9 +372,11 @@ def create(conf, db, name, mail, key, fingerprint):
     })
     save_db(db)
     gemini_sync(db)
+    if i2p_sync(db):
+        save_db(db)
     log(f"add {name} uid={uid} key={fingerprint}")
 
-    sent = runvmail.send(mail, "Welcome to runv.club", welcome_text(name))
+    sent = runvmail.send(mail, "Welcome to runv.club", welcome_text(name, find(db, name).get("i2p")))
     print(f"{name} created (uid {uid}, {fingerprint})" + ("" if sent else ", welcome mail not sent"))
 
 
@@ -299,6 +405,7 @@ def cmd_suspend(args, conf, db):
         m["suspend_reason"] = args.reason
     save_db(db)
     gemini_sync(db)
+    i2p_sync(db)
     log(f"suspend {m['username']} reason={args.reason or '-'}")
     print(f"{m['username']} suspended")
 
@@ -312,6 +419,7 @@ def cmd_unsuspend(args, conf, db):
     m.pop("suspend_reason", None)
     save_db(db)
     gemini_sync(db)
+    i2p_sync(db)
     log(f"unsuspend {m['username']}")
     print(f"{m['username']} active again")
 
@@ -332,6 +440,10 @@ def cmd_delete(args, conf, db):
     stamp = now().strftime("%Y%m%d-%H%M%S")
     dest = os.path.join(quarantine, f"{name}-{stamp}")
     os.rename(home, dest)
+    if i2p_tunnel_off(name):
+        i2p_reload()
+    if os.path.exists(i2p_key(name)):
+        shutil.move(i2p_key(name), os.path.join(dest, ".i2p-key.dat"))
 
     run("setquota", "-u", name, "0", "0", "0", "0", "/", check=False)
     run("crontab", "-r", "-u", name, check=False)
@@ -385,6 +497,11 @@ def cmd_gemini_sync(args, conf, db):
         print(line)
 
 
+def cmd_i2p_sync(args, conf, db):
+    if i2p_sync(db):
+        save_db(db)
+
+
 def main():
     if os.geteuid() != 0:
         die("run me as root")
@@ -404,6 +521,7 @@ def main():
     s.add_argument("name")
     s.add_argument("--reason")
     sub.add_parser("gemini-sync")
+    sub.add_parser("i2p-sync")
     pu = sub.add_parser("purge")
     pu.add_argument("--now", metavar="NAME")
 
