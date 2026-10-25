@@ -3,7 +3,10 @@ compatibility_level = 3.6
 myhostname = srv1.runv.club
 myorigin = runv.club
 mydestination =
-mynetworks = 127.0.0.0/8 [::1]/128
+# members share this box, so localhost gets no favours: it can only reach
+# our own aliases, like anyone else, and only root may hand mail to sendmail
+mynetworks = 127.0.0.1/32 [::1]/128
+authorized_submit_users = root
 inet_interfaces = all
 inet_protocols = all
 relayhost =
@@ -21,9 +24,8 @@ local_transport = error:no local delivery here
 
 smtpd_helo_required = yes
 smtpd_helo_restrictions = permit_mynetworks, reject_invalid_helo_hostname, reject_non_fqdn_helo_hostname
-smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_relay_restrictions = reject_unauth_destination
 smtpd_recipient_restrictions =
-    permit_mynetworks,
     reject_non_fqdn_recipient,
     reject_unknown_reverse_client_hostname,
     reject_unauth_destination

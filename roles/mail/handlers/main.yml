@@ -1,5 +1,8 @@
 - name: postmap virtual
-  ansible.builtin.command: postmap /etc/postfix/virtual
+  ansible.builtin.shell: |
+    postmap /etc/postfix/virtual
+    chgrp postfix /etc/postfix/virtual.db
+    chmod 640 /etc/postfix/virtual.db
   notify: reload postfix
 
 - name: reload postfix

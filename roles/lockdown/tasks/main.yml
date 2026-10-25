@@ -1,0 +1,74 @@
+- name: firewall rules for members, v4
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/before.rules
+    block: "{{ lookup('ansible.builtin.file', 'ufw-members.rules') }}"
+    marker: "# {mark} runv members"
+    insertbefore: "^# allow all on loopback"
+  notify: reload ufw
+
+- name: firewall rules for members, v6
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/before6.rules
+    block: "{{ lookup('ansible.builtin.file', 'ufw6-members.rules') }}"
+    marker: "# {mark} runv members"
+    insertbefore: "^# allow all on loopback"
+  notify: reload ufw
+
+- name: kernel settings
+  ansible.builtin.copy:
+    src: 90-runv.conf
+    dest: /etc/sysctl.d/90-runv.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: sysctl
+
+# members only see their own processes. the proc group sees everything,
+# for the monitoring agents and polkit
+- name: proc group
+  ansible.builtin.group:
+    name: proc
+    system: true
+  register: proc_group
+
+- name: who may see all processes
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: proc
+    append: true
+    # some of them live in /nonexistent, and it has to stay that way
+    create_home: false
+  loop:
+    - Debian-snmp
+    - beszel
+    - polkitd
+
+- name: hide other people's processes
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^proc\s+/proc\s'
+    line: "proc /proc proc defaults,hidepid=invisible,gid=proc 0 0"
+
+- name: hidepid now
+  ansible.builtin.shell: |
+    if grep -q 'hidepid=invisible' /proc/mounts; then exit 0; fi
+    mount -o remount,hidepid=invisible,gid=proc /proc && echo changed
+  register: hidepid
+  changed_when: "'changed' in hidepid.stdout"
+
+- name: restart agents that need the proc group
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: restarted
+  loop:
+    - snmpd
+    - beszel-agent
+    - polkit
+  when: hidepid.changed
+
+# join has an empty password for ssh. su must not take it
+- name: nobody can su to join
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/su
+    line: "auth       requisite  pam_succeed_if.so quiet user != join"
+    insertbefore: "^auth\\s+sufficient\\s+pam_rootok.so"

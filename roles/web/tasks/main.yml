@@ -61,6 +61,16 @@
     state: absent
   notify: reload nginx
 
+# names we don't serve get nothing, instead of whichever vhost comes first
+- name: catch-all for unknown names
+  ansible.builtin.copy:
+    src: 00-unknown.conf
+    dest: /etc/nginx/sites-enabled/00-unknown.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
 - name: certificate already there
   ansible.builtin.stat:
     path: /etc/letsencrypt/live/runv.club/fullchain.pem

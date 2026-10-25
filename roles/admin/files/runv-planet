@@ -1,6 +1,7 @@
 #!/usr/bin/python3 -I
-# hourly: the latest posts of every active member, at runv.club/planet,
-# as a feed, and as a short list included in the home page.
+# every 15 minutes: the latest posts of every active member, at
+# runv.club/planet, as a feed and as a short list on the home page. also
+# the member directory at runv.club/~ and /tilde.json
 import html
 import json
 import os
@@ -47,6 +48,60 @@ def feed_of(name, uid):
     return posts
 
 
+def last_change(home):
+    """Newest mtime under ~/public_html, without following links. Capped, so
+    a member with a million files can't make this slow."""
+    newest, seen = 0, 0
+    for root, dirs, files in os.walk(os.path.join(home, "public_html"), followlinks=False):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for f in files:
+            try:
+                newest = max(newest, os.lstat(os.path.join(root, f)).st_mtime)
+            except OSError:
+                pass
+            seen += 1
+            if seen > 5000:
+                return newest
+    return newest
+
+
+def directory(members):
+    import datetime as dt
+    rows = []
+    for m in members:
+        name = m["username"]
+        home = pwd.getpwnam(name).pw_dir
+        rows.append((last_change(home), name, (m.get("created_at") or "")[:10]))
+    rows.sort(reverse=True)
+
+    def li(changed, name, joined):
+        when = dt.datetime.fromtimestamp(changed).strftime("%Y-%m-%d") if changed else "-"
+        return (f'<li><a href="/~{name}/">~{name}</a> <span class="who">updated {when}'
+                f'{", joined " + joined if joined else ""}</span></li>')
+
+    items = "\n".join(li(*r) for r in rows) or "<li>nobody yet</li>"
+    write(os.path.join("/var/www/runv", "members.html"), f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>runv.club members</title>
+<style>
+{CSS}
+</style>
+</head>
+<body>
+<h1>~ members</h1>
+<p>{len(rows)} {"person lives" if len(rows) == 1 else "people live"} on runv.club. Newest changes first.</p>
+<ul>
+{items}
+</ul>
+<footer><a href="/">runv.club</a> · <a href="/planet/">planet</a></footer>
+</body>
+</html>
+""")
+
+
 def write(path, text):
     with open(path + ".new", "w", encoding="utf-8") as f:
         f.write(text)
@@ -68,6 +123,7 @@ def main():
              "description": "A small public unix server from Brazil, in English.",
              "users": sorted(m["username"] for m in members)}
     write("/var/www/runv/tilde.json", json.dumps(tilde, indent=2) + "\n")
+    directory(members)
     posts.sort(key=lambda p: p["date"], reverse=True)
     posts = posts[:50]
     os.makedirs(OUT, mode=0o755, exist_ok=True)

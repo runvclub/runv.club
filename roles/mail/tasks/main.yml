@@ -45,14 +45,22 @@
     src: virtual.j2
     dest: /etc/postfix/virtual
     owner: root
-    group: root
-    mode: "0644"
+    group: postfix
+    mode: "0640"
   notify: postmap virtual
 
 - name: virtual map exists
   ansible.builtin.command: postmap /etc/postfix/virtual
   args:
     creates: /etc/postfix/virtual.db
+
+# it holds the admin's own address
+- name: forwards map is private
+  ansible.builtin.file:
+    path: /etc/postfix/virtual.db
+    owner: root
+    group: postfix
+    mode: "0640"
 
 - name: reload postfix after renewals
   ansible.builtin.copy:

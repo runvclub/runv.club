@@ -1,0 +1,5 @@
+- name: reload ufw
+  ansible.builtin.command: ufw reload
+
+- name: sysctl
+  ansible.builtin.command: sysctl --system
