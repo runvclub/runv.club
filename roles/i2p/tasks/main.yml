@@ -1,0 +1,82 @@
+- name: i2pd
+  ansible.builtin.apt:
+    name: i2pd
+    state: present
+    install_recommends: false
+
+- name: i2pd.conf
+  ansible.builtin.template:
+    src: i2pd.conf.j2
+    dest: /etc/i2pd/i2pd.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart i2pd
+
+- name: no default tunnels
+  ansible.builtin.copy:
+    src: tunnels.conf
+    dest: /etc/i2pd/tunnels.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart i2pd
+
+- name: no default irc client tunnels
+  ansible.builtin.file:
+    path: /etc/i2pd/tunnels.d/{{ item }}
+    state: absent
+  loop:
+    - IRC-Ilita.conf
+    - IRC-Irc2P.conf
+  notify: restart i2pd
+
+- name: member keys dir
+  ansible.builtin.file:
+    path: /var/lib/i2pd/runv
+    state: directory
+    owner: i2pd
+    group: i2pd
+    mode: "0700"
+
+- name: i2pd memory cap dir
+  ansible.builtin.file:
+    path: /etc/systemd/system/i2pd.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: i2pd memory cap
+  ansible.builtin.copy:
+    src: i2pd-limits.conf
+    dest: /etc/systemd/system/i2pd.service.d/limits.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart i2pd
+
+- name: i2pd running
+  ansible.builtin.systemd_service:
+    name: i2pd
+    enabled: true
+    state: started
+
+- name: eepsite vhost
+  ansible.builtin.copy:
+    src: runv-i2p.conf
+    dest: /etc/nginx/sites-enabled/runv-i2p.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: firewall for i2p
+  ansible.builtin.command: ufw allow {{ i2p_port }}
+  register: ufw_rule
+  changed_when: "'Rule added' in ufw_rule.stdout"
+
+- name: tunnels for members after boot
+  ansible.builtin.systemd_service:
+    name: runv-i2p-sync.service
+    enabled: true

@@ -1,9 +1,10 @@
 [Unit]
-Description=watch runv state for the instant backup
+Description=watch the queue, member list and i2p keys for the instant backup
 
 [Path]
 PathChanged=/var/lib/runv/members.json
 PathChanged=/var/lib/runv-join/queue
+PathChanged=/var/lib/i2pd/runv
 
 [Install]
 WantedBy=paths.target

@@ -1,0 +1,6 @@
+i2p_port: 19318
+# KB/s shared with the network
+i2p_bandwidth: 256
+i2p_share: 50
+# only for testing from the box itself, keep it off
+i2p_http_proxy: false

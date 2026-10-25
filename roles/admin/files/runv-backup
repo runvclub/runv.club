@@ -30,8 +30,13 @@ full)
     ;;
 instant)
     export RESTIC_REPOSITORY="$(repo instant)"
-    restic backup -q --tag instant --exclude /var/lib/runv/deleted \
-        --files-from /etc/runv/backup-instant.paths
+    # paths that don't exist yet (a role not applied) are skipped, not fatal
+    list="$(mktemp)"
+    while read -r p; do
+        if [ -n "$p" ] && [ -e "$p" ]; then echo "$p"; fi
+    done < /etc/runv/backup-instant.paths > "$list"
+    restic backup -q --tag instant --exclude /var/lib/runv/deleted --files-from "$list"
+    rm -f "$list"
     # people who left the queue disappear from here after 30 days
     restic forget -q --tag instant --keep-within 30d --keep-last 3 --prune
     note "instant ok"

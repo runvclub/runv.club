@@ -1,0 +1,39 @@
+# members' eepsites only. no proxies, no console, nothing else to poke at
+tunconf = /etc/i2pd/tunnels.conf
+tunnelsdir = /etc/i2pd/tunnels.d
+loglevel = warn
+ipv4 = true
+ipv6 = true
+port = {{ i2p_port }}
+bandwidth = {{ i2p_bandwidth }}
+share = {{ i2p_share }}
+floodfill = false
+
+[http]
+enabled = false
+
+[httpproxy]
+enabled = {{ i2p_http_proxy | lower }}
+address = 127.0.0.1
+port = 4444
+
+[socksproxy]
+enabled = false
+
+[sam]
+enabled = false
+
+[bob]
+enabled = false
+
+[i2cp]
+enabled = false
+
+[i2pcontrol]
+enabled = false
+
+[upnp]
+enabled = false
+
+[reseed]
+verify = true

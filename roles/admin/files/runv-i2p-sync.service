@@ -1,0 +1,9 @@
+[Unit]
+Description=i2p tunnels for active members
+After=i2pd.service
+Wants=i2pd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/runv-user i2p-sync
