@@ -1,0 +1,5 @@
+# LTS line. to upgrade, change both and rerun
+forgejo_version: 15.0.10
+forgejo_sha256: eeb96095f610b6fbcd768e11b94cb345923f580d550d9cba44ee690d2a61daab
+forgejo_ssh_port: 2222
+forgejo_quota: 1GiB

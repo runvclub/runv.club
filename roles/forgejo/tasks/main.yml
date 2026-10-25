@@ -1,0 +1,175 @@
+- name: tools to check the release
+  ansible.builtin.apt:
+    name:
+      - gpgv
+      - gnupg
+      - git
+    state: present
+    install_recommends: false
+
+- name: git user
+  ansible.builtin.user:
+    name: git
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/forgejo
+    create_home: false
+
+- name: forgejo dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: git
+    group: git
+    mode: "0750"
+  loop:
+    - /var/lib/forgejo
+    - /var/lib/forgejo/data
+    - /var/lib/forgejo/repositories
+    - /var/lib/forgejo/custom
+
+- name: config dir
+  ansible.builtin.file:
+    path: /etc/forgejo
+    state: directory
+    owner: root
+    group: git
+    mode: "0750"
+
+- name: download dir
+  ansible.builtin.file:
+    path: /var/cache/runv
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: forgejo binary
+  ansible.builtin.get_url:
+    url: https://codeberg.org/forgejo/forgejo/releases/download/v{{ forgejo_version }}/forgejo-{{ forgejo_version }}-linux-amd64
+    dest: /var/cache/runv/forgejo-{{ forgejo_version }}
+    checksum: sha256:{{ forgejo_sha256 }}
+    mode: "0644"
+
+- name: forgejo signature
+  ansible.builtin.get_url:
+    url: https://codeberg.org/forgejo/forgejo/releases/download/v{{ forgejo_version }}/forgejo-{{ forgejo_version }}-linux-amd64.asc
+    dest: /var/cache/runv/forgejo-{{ forgejo_version }}.asc
+    mode: "0644"
+
+- name: release key
+  ansible.builtin.copy:
+    src: forgejo-release.asc
+    dest: /var/cache/runv/forgejo-release.asc
+    mode: "0644"
+
+- name: release keyring
+  ansible.builtin.shell: gpg --dearmor < /var/cache/runv/forgejo-release.asc > /var/cache/runv/forgejo-release.gpg
+  args:
+    creates: /var/cache/runv/forgejo-release.gpg
+
+- name: signature is good
+  ansible.builtin.command: >
+    gpgv --keyring /var/cache/runv/forgejo-release.gpg
+    /var/cache/runv/forgejo-{{ forgejo_version }}.asc
+    /var/cache/runv/forgejo-{{ forgejo_version }}
+  changed_when: false
+
+- name: install forgejo
+  ansible.builtin.copy:
+    src: /var/cache/runv/forgejo-{{ forgejo_version }}
+    dest: /usr/local/bin/forgejo
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  notify: restart forgejo
+
+- name: secrets, made once
+  ansible.builtin.shell: |
+    umask 077
+    {
+      echo "SECRET_KEY=$(/usr/local/bin/forgejo generate secret SECRET_KEY)"
+      echo "INTERNAL_TOKEN=$(/usr/local/bin/forgejo generate secret INTERNAL_TOKEN)"
+      echo "JWT_SECRET=$(/usr/local/bin/forgejo generate secret JWT_SECRET)"
+    } > /etc/runv/forgejo.secrets
+  args:
+    creates: /etc/runv/forgejo.secrets
+
+- name: read secrets
+  ansible.builtin.set_fact:
+    forgejo_secrets:
+      SECRET_KEY: "{{ lookup('ansible.builtin.ini', 'SECRET_KEY', file='/etc/runv/forgejo.secrets', type='properties') }}"
+      INTERNAL_TOKEN: "{{ lookup('ansible.builtin.ini', 'INTERNAL_TOKEN', file='/etc/runv/forgejo.secrets', type='properties') }}"
+      JWT_SECRET: "{{ lookup('ansible.builtin.ini', 'JWT_SECRET', file='/etc/runv/forgejo.secrets', type='properties') }}"
+  no_log: true
+
+- name: app.ini
+  ansible.builtin.template:
+    src: app.ini.j2
+    dest: /etc/forgejo/app.ini
+    owner: root
+    group: git
+    mode: "0640"
+  no_log: true
+  notify: restart forgejo
+
+- name: unit
+  ansible.builtin.copy:
+    src: forgejo.service
+    dest: /etc/systemd/system/forgejo.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart forgejo
+
+- name: running
+  ansible.builtin.systemd_service:
+    name: forgejo
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: apply restarts now
+  ansible.builtin.meta: flush_handlers
+
+- name: wait for forgejo
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 3000
+    timeout: 60
+
+# the API account runv-user talks to. nobody logs in with it
+- name: api admin
+  ansible.builtin.shell: |
+    cd /var/lib/forgejo
+    if ! runuser -u git -- /usr/local/bin/forgejo --config /etc/forgejo/app.ini admin user list --admin | grep -qw forgejoadmin; then
+      runuser -u git -- /usr/local/bin/forgejo --config /etc/forgejo/app.ini admin user create \
+        --admin --username forgejoadmin --email forgejoadmin@noreply.runv.club --random-password >/dev/null
+      echo created
+    fi
+  register: api_admin
+  changed_when: "'created' in api_admin.stdout"
+
+- name: api token
+  ansible.builtin.shell: |
+    umask 077
+    cd /var/lib/forgejo
+    runuser -u git -- /usr/local/bin/forgejo --config /etc/forgejo/app.ini admin user generate-access-token \
+      --username forgejoadmin --token-name runv-user --scopes all --raw > /etc/runv/forgejo.token
+  args:
+    creates: /etc/runv/forgejo.token
+
+- name: vhost
+  ansible.builtin.template:
+    src: git.runv.club.conf.j2
+    dest: /etc/nginx/sites-enabled/git.runv.club.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: firewall for git over ssh
+  ansible.builtin.command: ufw allow {{ forgejo_ssh_port }}/tcp
+  register: ufw_rule
+  changed_when: "'Rule added' in ufw_rule.stdout"

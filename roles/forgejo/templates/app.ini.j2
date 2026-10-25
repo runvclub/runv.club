@@ -1,0 +1,92 @@
+APP_NAME = runv.club git
+RUN_USER = git
+RUN_MODE = prod
+WORK_PATH = /var/lib/forgejo
+
+[server]
+PROTOCOL = http
+HTTP_ADDR = 127.0.0.1
+HTTP_PORT = 3000
+DOMAIN = git.runv.club
+ROOT_URL = https://git.runv.club/
+START_SSH_SERVER = true
+SSH_DOMAIN = git.runv.club
+SSH_PORT = {{ forgejo_ssh_port }}
+SSH_LISTEN_HOST = 0.0.0.0
+SSH_LISTEN_PORT = {{ forgejo_ssh_port }}
+LFS_START_SERVER = false
+OFFLINE_MODE = true
+LANDING_PAGE = login
+
+[database]
+DB_TYPE = sqlite3
+PATH = /var/lib/forgejo/data/forgejo.db
+SQLITE_JOURNAL_MODE = WAL
+
+[repository]
+ROOT = /var/lib/forgejo/repositories
+DISABLE_MIGRATIONS = true
+
+[mirror]
+ENABLED = false
+
+[migrations]
+ALLOW_LOCALNETWORKS = false
+
+[indexer]
+REPO_INDEXER_ENABLED = false
+ISSUE_INDEXER_TYPE = db
+
+[actions]
+ENABLED = false
+
+[service]
+DISABLE_REGISTRATION = true
+SHOW_REGISTRATION_BUTTON = false
+REQUIRE_SIGNIN_VIEW = true
+DEFAULT_KEEP_EMAIL_PRIVATE = true
+ENABLE_NOTIFY_MAIL = false
+NO_REPLY_ADDRESS = noreply.runv.club
+
+[service.explore]
+REQUIRE_SIGNIN_VIEW = true
+
+[openid]
+ENABLE_OPENID_SIGNIN = false
+ENABLE_OPENID_SIGNUP = false
+
+[oauth2]
+ENABLED = true
+JWT_SECRET = {{ forgejo_secrets.JWT_SECRET }}
+
+[security]
+INSTALL_LOCK = true
+SECRET_KEY = {{ forgejo_secrets.SECRET_KEY }}
+INTERNAL_TOKEN = {{ forgejo_secrets.INTERNAL_TOKEN }}
+MIN_PASSWORD_LENGTH = 12
+
+[session]
+PROVIDER = db
+COOKIE_SECURE = true
+
+[cache]
+ADAPTER = memory
+
+[picture]
+DISABLE_GRAVATAR = true
+
+[mailer]
+ENABLED = false
+
+[quota]
+ENABLED = true
+
+[quota.default]
+TOTAL = {{ forgejo_quota }}
+
+[log]
+MODE = console
+LEVEL = Warn
+
+[other]
+SHOW_FOOTER_VERSION = false

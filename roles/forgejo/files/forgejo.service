@@ -1,0 +1,28 @@
+[Unit]
+Description=Forgejo (git.runv.club)
+After=network.target
+
+[Service]
+User=git
+Group=git
+WorkingDirectory=/var/lib/forgejo
+Environment=USER=git HOME=/var/lib/forgejo FORGEJO_WORK_DIR=/var/lib/forgejo
+ExecStart=/usr/local/bin/forgejo web --config /etc/forgejo/app.ini
+Restart=always
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/forgejo
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
