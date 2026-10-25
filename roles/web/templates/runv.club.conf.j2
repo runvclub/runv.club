@@ -46,6 +46,7 @@ server {
     # ~user pages straight from the home dir. a member can't symlink their
     # way into files they don't own, and 403s look like 404s from outside
     location ~ "^/~(?<member>[a-z][a-z0-9_]{1,15})(?<rest>/.*)?$" {
+        access_log /var/log/nginx/members.log runv_members;
         if ($rest = "") {
             return 301 /~$member/;
         }

@@ -1,0 +1,208 @@
+#!/usr/bin/python3 -I
+# hourly: reads what nginx logged for ~member pages since the last run.
+#
+# - every member gets their own access log in /var/lib/runv-stats/NAME,
+#   with addresses cut down to /24 (v4) or /48 (v6), kept 14 days
+# - members who turned analytics on (runv analytics on) also get counted:
+#   unique visitors by a hash of address and browser with a salt that
+#   changes every day and is thrown away, top pages and referrers. no
+#   address is ever stored. counts are kept for a year
+import datetime as dt
+import grp
+import hashlib
+import ipaddress
+import json
+import os
+import pwd
+import secrets
+import sqlite3
+import urllib.parse
+
+LOG = "/var/log/nginx/members.log"
+STATE = "/var/lib/runv/stats.state"
+SALT = "/var/lib/runv/stats.salt"
+DB = "/var/lib/runv/stats.db"
+OUT = "/var/lib/runv-stats"
+MEMBERS = "/var/lib/runv/members.json"
+LOG_DAYS = 14
+KEEP_DAYS = 365
+BOTS = ("bot", "crawl", "spider", "slurp", "curl", "wget", "python-", "go-http", "scan")
+
+
+def mask(addr):
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return "?"
+    prefix = 24 if ip.version == 4 else 48
+    return str(ipaddress.ip_network(f"{addr}/{prefix}", strict=False).network_address)
+
+
+def salt_for(day):
+    try:
+        with open(SALT) as f:
+            d, s = f.read().split()
+        if d == day:
+            return s
+    except (OSError, ValueError):
+        pass
+    s = secrets.token_hex(16)
+    fd = os.open(SALT + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(f"{day} {s}\n")
+    os.replace(SALT + ".new", SALT)
+    return s
+
+
+def new_lines():
+    """Lines added to the log since last time, following rotation."""
+    try:
+        st = os.stat(LOG)
+    except FileNotFoundError:
+        return []
+    inode, offset = 0, 0
+    try:
+        with open(STATE) as f:
+            inode, offset = map(int, f.read().split())
+    except (OSError, ValueError):
+        pass
+    lines = []
+    if inode and inode != st.st_ino and os.path.exists(LOG + ".1"):
+        # rotated since last run: finish the old file first
+        with open(LOG + ".1", errors="replace") as f:
+            f.seek(offset)
+            lines += f.readlines()
+        offset = 0
+    if inode == st.st_ino and offset > st.st_size:
+        offset = 0
+    with open(LOG, errors="replace") as f:
+        f.seek(offset)
+        lines += f.readlines()
+        offset = f.tell()
+    with open(STATE, "w") as f:
+        f.write(f"{st.st_ino} {offset}\n")
+    return lines
+
+
+def member_dir(name, gid):
+    d = os.path.join(OUT, name)
+    os.makedirs(d, mode=0o750, exist_ok=True)
+    os.chown(d, 0, gid)
+    os.chmod(d, 0o750)
+    return d
+
+
+def write_file(path, text, gid):
+    fd = os.open(path + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.chown(path + ".new", 0, gid)
+    os.replace(path + ".new", path)
+
+
+def opted_in(name):
+    try:
+        return os.path.isfile(os.path.join(pwd.getpwnam(name).pw_dir, ".config", "runv", "analytics"))
+    except KeyError:
+        return False
+
+
+def main():
+    try:
+        with open(MEMBERS) as f:
+            db_members = json.load(f)
+    except FileNotFoundError:
+        db_members = []
+    active = {m["username"] for m in db_members if m["status"] == "active"}
+    known = {m["username"] for m in db_members if m["status"] != "deleted"}
+    os.makedirs(OUT, mode=0o711, exist_ok=True)
+    os.chmod(OUT, 0o711)
+
+    db = sqlite3.connect(DB)
+    db.executescript("""
+        create table if not exists visitors (member, day, hash, unique (member, day, hash));
+        create table if not exists pages (member, day, path, n, unique (member, day, path));
+        create table if not exists refs (member, day, host, n, unique (member, day, host));
+    """)
+    os.chmod(DB, 0o600)
+
+    today = dt.date.today().isoformat()
+    salts = {}
+    logs = {}
+    counting = {n for n in active if opted_in(n)}
+    for line in new_lines():
+        f = line.rstrip("\n").split("\t")
+        if len(f) != 8:
+            continue
+        name, when, addr, status, method, uri, ref, ua = f
+        if name not in active:
+            continue
+        logs.setdefault(name, []).append(
+            f"{when}\t{mask(addr)}\t{status}\t{method}\t{uri}\t{ref if ref != '-' else ''}\n")
+        if name not in counting or method != "GET" or status not in ("200", "304"):
+            continue
+        if any(b in ua.lower() for b in BOTS):
+            continue
+        day = when[:10]
+        salt = salts.setdefault(day, salt_for(day) if day == today else None)
+        if salt is None:
+            continue  # yesterday's salt is gone, on purpose
+        visitor = hashlib.sha256(f"{salt}|{addr}|{ua}".encode()).hexdigest()[:16]
+        db.execute("insert or ignore into visitors values (?, ?, ?)", (name, day, visitor))
+        if not uri.endswith((".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp", ".woff2")):
+            db.execute("insert into pages values (?, ?, ?, 1) on conflict do update set n = n + 1",
+                       (name, day, uri))
+        host = urllib.parse.urlsplit(ref).hostname if ref.startswith("http") else None
+        if host and host not in ("runv.club", "www.runv.club"):
+            db.execute("insert into refs values (?, ?, ?, 1) on conflict do update set n = n + 1",
+                       (name, day, host))
+
+    cutoff = (dt.date.today() - dt.timedelta(days=KEEP_DAYS)).isoformat()
+    for t in ("visitors", "pages", "refs"):
+        db.execute(f"delete from {t} where day < ?", (cutoff,))
+    db.commit()
+
+    log_cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=LOG_DAYS)).isoformat()
+    for name in active:
+        try:
+            gid = grp.getgrnam(name).gr_gid
+        except KeyError:
+            continue
+        d = member_dir(name, gid)
+        path = os.path.join(d, "access.log")
+        try:
+            with open(path) as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            lines = []
+        kept = [l for l in lines if l[:19] >= log_cutoff[:19]]
+        if logs.get(name) or len(kept) != len(lines):
+            write_file(path, "".join(kept + logs.get(name, [])), gid)
+
+        since = {k: (dt.date.today() - dt.timedelta(days=n)).isoformat()
+                 for k, n in (("today", 0), ("7 days", 6), ("30 days", 29), ("year", 364))}
+        visitors = {k: db.execute("select count(distinct hash || day) from visitors where member = ? and day >= ?",
+                                  (name, v)).fetchone()[0] for k, v in since.items()}
+        pages = db.execute("select path, sum(n) s from pages where member = ? and day >= ? "
+                           "group by path order by s desc limit 10", (name, since["30 days"])).fetchall()
+        refs = db.execute("select host, sum(n) s from refs where member = ? and day >= ? "
+                          "group by host order by s desc limit 10", (name, since["30 days"])).fetchall()
+        summary = {"visitors": visitors, "pages": pages, "referrers": refs,
+                   "updated": dt.datetime.now().strftime("%Y-%m-%d %H:%M")}
+        write_file(os.path.join(d, "summary.json"), json.dumps(summary) + "\n", gid)
+
+    # members who left take their stats with them
+    for name in os.listdir(OUT):
+        if name not in known:
+            p = os.path.join(OUT, name)
+            for f in os.listdir(p):
+                os.remove(os.path.join(p, f))
+            os.rmdir(p)
+            db.execute("delete from visitors where member = ?", (name,))
+            db.execute("delete from pages where member = ?", (name,))
+            db.execute("delete from refs where member = ?", (name,))
+    db.commit()
+
+
+if __name__ == "__main__":
+    main()

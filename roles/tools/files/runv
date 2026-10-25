@@ -18,7 +18,7 @@ import runvcheck  # noqa: E402
 USER = pwd.getpwuid(os.getuid()).pw_name
 HOME = pwd.getpwuid(os.getuid()).pw_dir
 CONF = os.path.join(HOME, ".config", "runv")
-STATS = f"/var/lib/runv/stats/{USER}"
+STATS = f"/var/lib/runv-stats/{USER}"
 KEYS = os.path.join(HOME, ".ssh", "authorized_keys")
 
 # name shown, systemd unit. units that don't exist yet are left out

@@ -40,6 +40,8 @@
   loop:
     - runvmail.py
     - runvcheck.py
+    - runvsecret.py
+    - runvirc.py
 
 - name: admin commands
   ansible.builtin.copy:
@@ -55,6 +57,7 @@
     - runv-alert
     - runv-weekly
     - runv-priv
+    - runv-stats
 
 # members reach runv-priv through sudo, and nothing else. it works out who
 # called it from SUDO_USER and takes fixed subcommands only
@@ -111,6 +114,8 @@
     - runv-queue-tick.timer
     - runv-gemini-sync.service
     - runv-i2p-sync.service
+    - runv-stats.service
+    - runv-stats.timer
   notify: daemon reload
 
 - name: reload units now
@@ -129,6 +134,7 @@
     - runv-queue-notify.path
     - runv-queue-notify.timer
     - runv-queue-tick.timer
+    - runv-stats.timer
 
 - name: gemini mounts at boot
   ansible.builtin.systemd_service:
