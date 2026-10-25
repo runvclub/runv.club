@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Runv Club</title>
+<title>runv.club</title>
 <style>
   html { background: #fff; color: #000; }
   body {
@@ -12,17 +12,48 @@
     padding: 4rem 1.25rem;
     font: 1.125rem/1.7 Georgia, "Times New Roman", serif;
   }
-  p { margin: 0 0 1.25rem; }
+  h1 { font-size: 1.5rem; font-weight: normal; margin: 0 0 2rem; }
+  p, ul { margin: 0 0 1.25rem; }
+  ul { padding-left: 1.25rem; }
+  a { color: #000; }
   .sign { margin-top: 2.5rem; color: #8b0000; }
+  footer { margin-top: 3rem; font-size: 1rem; }
+  .badges { margin-top: 1.5rem; display: flex; gap: .75rem; align-items: center; }
+  .badges img { height: 31px; width: auto; display: block; }
 </style>
 </head>
 <body>
 <main>
-  <p>Runv Club has been shut down. After two years, I realized I could build something better for you.</p>
-  <p>Your data has been packaged and sent to you by email.</p>
-  <p>Believe me, deciding to start from zero again was hard, but I promise something better is on its way.</p>
-  <p>See you soon<br>(really, we're building something better)</p>
+  <h1>runv.club</h1>
+
+  <p>runv.club is a small public Unix server, run from Brazil. Members get an account on a shared Debian box and a corner of the small internet to go with it.</p>
+
+  <p>What you get:</p>
+  <ul>
+    <li>a shell over SSH, with editors, git, Python and a C compiler</li>
+    <li>a web page at runv.club/~you</li>
+    <li>a Gemini capsule and a Gopher hole</li>
+    <li>an eepsite with its own address on I2P</li>
+    <li>git repositories at <a href="https://git.runv.club">git.runv.club</a></li>
+    <li>bookmarks at <a href="https://links.runv.club">links.runv.club</a></li>
+    <li>#runv on tilde.chat, to talk to everyone else</li>
+  </ul>
+
+  <p>It's a good place to learn your way around Linux and to put your writing online with no ads or feeds around it.</p>
+
+  <p>Every request to join is read by a person, and we let in 5 people a week. <a href="/join">Ask to join</a>.</p>
+
+  <p>The old runv.club closed in October 2026. <a href="/farewell">The letter</a> is still up.</p>
+
   <p class="sign">pmurad</p>
+
+  <footer>
+    <p><a href="/rules">rules</a> · <a href="/privacy">privacy</a> · <a href="mailto:admin@runv.club">admin@runv.club</a></p>
+    <div class="badges">
+      <a href="https://www.debian.org/"><img src="/img/powered-by-debian.gif" width="88" height="31" alt="Powered by Debian"></a>
+      <a href="https://www.python.org/"><img src="/img/python-powered.png" width="78" height="31" alt="Python powered"></a>
+    </div>
+  </footer>
 </main>
 </body>
 </html>

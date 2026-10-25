@@ -38,6 +38,11 @@
     group: root
     mode: u=rwX,go=rX
 
+- name: home page used to live in home.html
+  ansible.builtin.file:
+    path: /var/www/runv/home.html
+    state: absent
+
 - name: nginx snippets
   ansible.builtin.copy:
     src: "{{ item.src }}"
