@@ -61,10 +61,39 @@
     group: root
     mode: "0644"
 
+# the banner is drawn at login by /usr/local/bin/motd, so the static one stays empty
 - name: motd
   ansible.builtin.copy:
     src: motd
+    dest: /usr/local/bin/motd
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: no static motd
+  ansible.builtin.copy:
+    content: ""
     dest: /etc/motd
     owner: root
     group: root
     mode: "0644"
+
+- name: motd at login
+  ansible.builtin.copy:
+    src: profile-motd.sh
+    dest: /etc/profile.d/runv-motd.sh
+    owner: root
+    group: root
+    mode: "0644"
+
+# the admin writes here by hand, ansible only makes the first one
+- name: news for the motd
+  ansible.builtin.copy:
+    content: |
+      # one item per line, newest last: YYYY-MM-DD what happened
+      # the motd shows the last one for 30 days
+    dest: /etc/runv-news
+    owner: root
+    group: root
+    mode: "0644"
+    force: false

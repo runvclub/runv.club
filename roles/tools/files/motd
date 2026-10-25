@@ -1,10 +1,318 @@
+#!/usr/bin/python3 -I
+# the login banner. runs as the member from /etc/profile.d, so it only
+# knows what they know. `motd` shows it again, `motd --party` shows off.
+# touch ~/.hushlogin to stop seeing it.
+import datetime
+import grp
+import os
+import pwd
+import random
+import re
+import shutil
+import subprocess
+import sys
+import time
+import zoneinfo
 
-  welcome to runv.club
+LOGO = [
+    "██████╗  ██╗   ██╗ ███╗   ██╗ ██╗   ██╗",
+    "██╔══██╗ ██║   ██║ ████╗  ██║ ██║   ██║",
+    "██████╔╝ ██║   ██║ ██╔██╗ ██║ ██║   ██║",
+    "██╔══██╗ ██║   ██║ ██║╚██╗██║ ╚██╗ ██╔╝",
+    "██║  ██║ ╚██████╔╝ ██║ ╚████║  ╚████╔╝ ",
+    "╚═╝  ╚═╝  ╚═════╝  ╚═╝  ╚═══╝   ╚═══╝  ",
+    "░░▒▓█▓▒░░▒▓█   . c l u b   █▓▒░░▒▓█▓▒░░",
+]
+LOGO_W = max(len(l) for l in LOGO)
+SHADOW = set("╗╔═║╚╝")
 
-  help      how things work here
-  chat      #runv on tilde.chat
-  quota -s  how much disk you're using
+PALETTES = {
+    "brasil": [(0, 156, 59), (255, 223, 0), (0, 39, 118)],
+    "synthwave": [(255, 0, 153), (153, 51, 255), (0, 229, 255)],
+    "fogo": [(255, 32, 32), (255, 140, 0), (255, 230, 80)],
+    "aurora": [(0, 255, 170), (0, 170, 255), (190, 80, 255)],
+    "acai": [(120, 0, 160), (255, 60, 170), (255, 200, 230)],
+    "mar": [(0, 60, 140), (0, 200, 200), (230, 255, 250)],
+    "neon": [(57, 255, 20), (255, 255, 0), (255, 0, 255)],
+    "por do sol": [(255, 94, 77), (255, 175, 64), (120, 60, 200)],
+}
+RAINBOW = [(255, 0, 0), (255, 140, 0), (255, 240, 0), (0, 220, 70),
+           (0, 140, 255), (140, 0, 255), (255, 0, 160)]
 
-  you get 1G of RAM, 200 processes, one CPU and 2G of disk
-  rules: https://runv.club/rules
+# special days get their own colors
+DAYS = {
+    (1, 1): ("rainbow", "happy new year from runv.club"),
+    (9, 7): ("brasil", "independência ou morte! (of your processes, if you go over 200)"),
+    (10, 31): ("fogo", "happy halloween. something is lurking in /tmp"),
+    (12, 25): ("neon", "feliz natal! the server got you 2G of disk"),
+}
 
+QUOTES = [
+    "the server lives in France. its heart is in Brazil.",
+    "no ads, no feed, no algorithm. just files in a home directory.",
+    "your ~/public_html is a website. go make something weird.",
+    "be kind in #runv. somebody in there is having a bad day.",
+    "web, gemini, gopher, i2p. pick a protocol, any protocol.",
+    "cafezinho first, then ssh.",
+    "made of debian, python and a lot of stubbornness.",
+    "read someone's ~ today. leave them a nice note.",
+    "rule 1: don't break the box. rule 2: if you broke it, tell us.",
+    "the best feature of a pubnix is the people on it.",
+    "small web, big heart.",
+    "if it works, write it down in ~/README. future you says thanks.",
+    "there is no cloud. it's just someone's server in Lauterbourg.",
+]
+
+# sometimes the quote comes from her instead
+CAPIVARA = [
+    "       \\",
+    "        \\      ________",
+    "          ,--'`        `'-.",
+    "         / o                \\",
+    "        (__,                 |",
+    "          `--.___    ___.--'",
+    "              ||  ``  ||",
+]
+
+COLOR = False
+TRUECOLOR = False
+
+
+def lerp(a, b, t):
+    return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+
+
+def color_at(stops, t, cycle=False):
+    if cycle:
+        t = 1 - abs(1 - 2 * (t % 1))
+    t = min(max(t, 0.0), 1.0) * (len(stops) - 1)
+    i = min(int(t), len(stops) - 2)
+    return lerp(stops[i], stops[i + 1], t - i)
+
+
+def fg(rgb):
+    if TRUECOLOR:
+        return "38;2;%d;%d;%d" % rgb
+    r, g, b = (round(c / 255 * 5) for c in rgb)
+    return "38;5;%d" % (16 + 36 * r + 6 * g + b)
+
+
+def paint(text, rgb=None, bold=False, dim=False):
+    if not COLOR or not (rgb or bold or dim):
+        return text
+    codes = (["1"] if bold else []) + (["2"] if dim else []) + ([fg(rgb)] if rgb else [])
+    return "\x1b[%sm%s\x1b[0m" % (";".join(codes), text)
+
+
+def name_color(name):
+    # the same member always gets the same color
+    h = sum(ord(c) * 31 ** i for i, c in enumerate(name)) % 360 / 60
+    x = 1 - abs(h % 2 - 1)
+    r, g, b = [(1, x, 0), (x, 1, 0), (0, 1, x), (0, x, 1), (x, 0, 1), (1, 0, x)][int(h) % 6]
+    return tuple(round(90 + 165 * c) for c in (r, g, b))
+
+
+def bar(frac, n=10):
+    frac = min(max(frac, 0.0), 1.0)
+    full = round(frac * n)
+    rgb = (80, 220, 100) if frac < 0.6 else (255, 200, 0) if frac < 0.85 else (255, 60, 60)
+    return paint("▰" * full, rgb) + paint("▱" * (n - full), (90, 90, 90))
+
+
+def run(*cmd):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=1).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def logo_lines(stops, offset=0.0, cycle=False):
+    out = []
+    for y, line in enumerate(LOGO):
+        s = ""
+        for x, ch in enumerate(line):
+            if ch == " " or not COLOR:
+                s += ch
+                continue
+            rgb = color_at(stops, (x + y * 2.5) / (LOGO_W + len(LOGO) * 2.5) + offset, cycle)
+            if ch in SHADOW:
+                rgb = tuple(round(c * 0.45) for c in rgb)
+            s += "\x1b[%sm%s" % (fg(rgb), ch)
+        out.append(s + ("\x1b[0m" if COLOR else "") + " " * (LOGO_W - len(line)))
+    return out
+
+
+def human(kb):
+    for unit in ("K", "M", "G"):
+        if kb < 1024:
+            return "%d%s" % (kb, unit)
+        kb /= 1024
+    return "%.1fT" % kb
+
+
+def info(user, accent):
+    lines = [paint("hey ", accent) + paint(user, name_color(user), bold=True) + paint("!", accent)]
+
+    born = run("stat", "-c", "%W", os.path.expanduser("~")).strip()
+    if born.isdigit() and int(born) > 0:
+        lines.append(paint("day %d on runv.club" % ((time.time() - int(born)) // 86400 + 1), dim=True))
+    else:
+        lines.append(paint("welcome to runv.club", dim=True))
+    lines.append(paint("─" * 30, (70, 70, 70)))
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    sp = now.astimezone(zoneinfo.ZoneInfo("America/Sao_Paulo")).strftime("%H:%M")
+    fr = now.astimezone(zoneinfo.ZoneInfo("Europe/Paris")).strftime("%H:%M")
+    lines.append(paint("são paulo ", dim=True) + paint(sp, accent, bold=True)
+                 + paint("   france ", dim=True) + paint(fr, accent, bold=True))
+
+    with open("/proc/uptime") as f:
+        up = int(float(f.read().split()[0]))
+    with open("/proc/loadavg") as f:
+        load = float(f.read().split()[0])
+    lines.append(paint("up   ", dim=True) + ("%dd %dh" % (up // 86400, up % 86400 // 3600)).ljust(9)
+                 + paint("cpu ", dim=True) + bar(load / (os.cpu_count() or 1), 8))
+
+    mem = {}
+    with open("/proc/meminfo") as f:
+        for l in f:
+            k, v = l.split(":")
+            mem[k] = int(v.split()[0])
+    used = 1 - mem["MemAvailable"] / mem["MemTotal"]
+    lines.append(paint("mem  ", dim=True) + bar(used, 16) + " %d%%" % (used * 100))
+
+    # quota -w: header, column names, then blocks, soft limit, hard limit
+    q = run("quota", "-w", "-u", user).splitlines()
+    if len(q) >= 3:
+        f = q[2].split()
+        if len(f) >= 4 and f[2].isdigit() and int(f[2]) > 0:
+            blocks, limit = int(f[1].rstrip("*")), int(f[2])
+            lines.append(paint("disk ", dim=True) + bar(blocks / limit, 16)
+                         + " %s/%s" % (human(blocks), human(limit)))
+
+    online = []
+    for l in run("who").splitlines():
+        n = l.split()[0] if l.split() else ""
+        if n and n not in online:
+            online.append(n)
+    shown = ", ".join(paint(n, name_color(n), bold=n == user) for n in online[:4])
+    more = paint(" +%d" % (len(online) - 4), dim=True) if len(online) > 4 else ""
+    lines.append(paint("here ", dim=True) + (shown + more if online else paint("just you", dim=True)))
+
+    try:
+        members = grp.getgrnam("members").gr_mem
+    except KeyError:
+        members = []
+    if members:
+        newest = max(members, key=lambda m: pwd.getpwnam(m).pw_uid)
+        lines.append(paint("we are ", dim=True) + paint(str(len(members)), accent, bold=True)
+                     + paint(" · newest ", dim=True) + paint(newest, name_color(newest)))
+    return lines
+
+
+def news():
+    # /etc/runv-news, one item per line: 2026-10-25 what happened
+    try:
+        with open("/etc/runv-news") as f:
+            items = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+        date, _, text = items[-1].partition(" ")
+        age = (datetime.date.today() - datetime.date.fromisoformat(date)).days
+    except (OSError, IndexError, ValueError):
+        return None
+    return text if age <= 30 else None
+
+
+def tip(user):
+    tips = [
+        "your page: https://runv.club/~%s/" % user,
+        "your capsule: gemini://runv.club/~%s/" % user,
+        "your hole: gopher://runv.club/1/~%s" % user,
+        "say hi: type " + paint("chat", bold=True),
+        "your repos live at https://git.runv.club",
+        "save links at https://links.runv.club",
+        "lost? type " + paint("help", bold=True),
+    ]
+    if os.path.exists(os.path.expanduser("~/.i2p-address")):
+        tips.append("you have an eepsite. cat ~/.i2p-address")
+    return random.choice(tips)
+
+
+def party(stops):
+    sys.stdout.write("\x1b[?25l")
+    try:
+        for i in range(90):
+            if i:
+                sys.stdout.write("\x1b[%dA" % len(LOGO))
+            sys.stdout.write("\n".join("  " + l for l in logo_lines(stops, i / 30, True)) + "\n")
+            sys.stdout.flush()
+            time.sleep(0.03)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        sys.stdout.write("\x1b[%dA\x1b[?25h" % len(LOGO))
+
+
+def main():
+    global COLOR, TRUECOLOR
+    args = sys.argv[1:]
+    COLOR = sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb" \
+        and "NO_COLOR" not in os.environ and "--plain" not in args
+    TRUECOLOR = os.environ.get("COLORTERM") in ("truecolor", "24bit")
+    utf8 = (sys.stdout.encoding or "").lower().replace("-", "") == "utf8"
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or "you"
+    cols = shutil.get_terminal_size((80, 24)).columns
+
+    today = datetime.date.today()
+    special = DAYS.get((today.month, today.day))
+    shiny = random.randrange(64) == 0
+    if shiny or (special and special[0] == "rainbow"):
+        stops = RAINBOW
+    elif special:
+        stops = PALETTES[special[0]]
+    else:
+        stops = random.choice(list(PALETTES.values()))
+    accent = color_at(stops, 0.5)
+
+    if not utf8 or cols < 44:
+        print("\n  runv.club. hey %s, type help if you're lost.\n" % user)
+        return
+
+    print()
+    if "--party" in args and COLOR:
+        party(stops)
+    logo = logo_lines(stops)
+    side = info(user, accent)
+    if cols >= LOGO_W + 40:
+        rows = max(len(logo), len(side))
+        logo += [" " * LOGO_W] * (rows - len(logo))
+        for l, r in zip(logo, side + [""] * rows):
+            print("  " + l + "   " + r)
+    else:
+        for l in logo + [""] + side:
+            print("  " + l)
+    print()
+
+    if shiny:
+        msg = "✦ you got the shiny motd. 1 in 64. go brag in #runv ✦"
+        print("  " + "".join(paint(c, color_at(RAINBOW, i / len(msg))) for i, c in enumerate(msg)))
+    elif special:
+        print("  " + paint(special[1], accent, bold=True))
+    print("  " + paint("“" + random.choice(QUOTES) + "”", (200, 200, 200)))
+    if random.randrange(4) == 0 or "--capivara" in args:
+        for l in CAPIVARA:
+            print("  " + paint(l, (190, 130, 70)))
+    item = news()
+    if item:
+        print("  " + paint("news ", accent, bold=True) + item)
+    print("  " + paint("tip  ", accent, bold=True) + tip(user))
+    print()
+    print("  " + paint("help · chat · motd --party · runv.club/rules", (110, 110, 110)))
+    print()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        # a broken banner must never get in the way of a login
+        print("\n  welcome to runv.club. type help if you're lost.\n")
