@@ -1,0 +1,12 @@
+Type `chat` to open weechat in #runv on tilde.chat, the IRC network the
+tilde servers share. The first run sets everything up with your
+username as your nick. After that it's ordinary weechat.
+
+Register your nick so nobody else takes it. Inside weechat:
+
+  /msg NickServ REGISTER yourpassword you@example.org
+
+From a browser: https://tilde.chat/gamja/
+Prefer irssi? irc.tilde.chat, port 6697, TLS.
+
+tilde.chat has its own rules: https://tilde.wiki/Code_of_conduct

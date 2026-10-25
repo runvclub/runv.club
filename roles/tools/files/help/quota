@@ -1,0 +1,9 @@
+Every account gets 2G of disk (with a little room over that for a
+while), 1G of RAM, 200 processes and one CPU.
+
+  quota -s      disk used and the limit
+  du -sh ~/*    what's taking the space
+
+When a program runs out of memory it gets killed, and when you hit the
+process limit new ones won't start. Nothing is wrong with the server
+when that happens, it's the limit.

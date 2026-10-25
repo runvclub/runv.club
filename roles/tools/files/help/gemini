@@ -1,0 +1,14 @@
+Your Gemini capsule is ~/public_gemini, at gemini://runv.club/~you/
+You'll need a Gemini client to see it, Lagrange or Amfora for example.
+
+The front page is ~/public_gemini/index.gmi. Gemtext is simple:
+
+  # A heading
+  A paragraph is just a line of text.
+  => gemini://runv.club/~you/other.gmi a link
+  * a list item
+
+Files must be readable by others (chmod 644). Edit what is inside
+~/public_gemini, but don't delete or replace the folder itself: the
+server keeps a hold on it, and a new folder won't show up until an
+admin resyncs it.

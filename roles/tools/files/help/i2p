@@ -1,0 +1,12 @@
+Your eepsite is ~/public_i2p, served on the I2P network at the address
+in ~/.i2p-address:
+
+  cat ~/.i2p-address
+
+It works like your web page: index.html first, files readable by others
+(chmod 644). To visit it you need I2P running on your own machine, i2pd
+or the Java router both work. A new address can take a few minutes to
+become reachable.
+
+The address belongs to your account and doesn't change. If the account
+is deleted, so is the address.

@@ -1,0 +1,13 @@
+#!/bin/sh
+# runv-help [topic]
+dir=/usr/local/share/runv/help
+if [ $# -eq 0 ]; then
+    cat "$dir/index"
+    exit 0
+fi
+if [ -f "$dir/$1" ]; then
+    cat "$dir/$1"
+else
+    echo "no help on '$1'. try: help" >&2
+    exit 1
+fi

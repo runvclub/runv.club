@@ -23,5 +23,48 @@
       - unzip
       - file
       - bc
+      - weechat-curses
+      - irssi
     state: present
     install_recommends: false
+
+- name: chat command
+  ansible.builtin.copy:
+    src: chat
+    dest: /usr/local/bin/chat
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: help command
+  ansible.builtin.copy:
+    src: runv-help
+    dest: /usr/local/bin/runv-help
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: help topics
+  ansible.builtin.copy:
+    src: help/
+    dest: /usr/local/share/runv/help/
+    owner: root
+    group: root
+    mode: u=rwX,go=rX
+    directory_mode: "0755"
+
+- name: help alias
+  ansible.builtin.copy:
+    src: profile-runv.sh
+    dest: /etc/profile.d/runv.sh
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: motd
+  ansible.builtin.copy:
+    src: motd
+    dest: /etc/motd
+    owner: root
+    group: root
+    mode: "0644"

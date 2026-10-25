@@ -1,0 +1,16 @@
+Your web page is whatever is in ~/public_html, served at
+https://runv.club/~you/ (with your username instead of "you").
+
+Start by editing ~/public_html/index.html:
+
+  nano ~/public_html/index.html
+
+Files have to be readable by others to show up. If a page gives you
+"not found" when the file is there, check the permissions:
+
+  chmod 644 ~/public_html/page.html
+  chmod 755 ~/public_html/somedir
+
+Links to files outside your home, or files owned by someone else, are
+not served. Plain HTML, CSS, images and JavaScript work. There is no
+PHP or CGI.

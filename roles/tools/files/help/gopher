@@ -1,0 +1,11 @@
+Your Gopher hole is ~/public_gopher, at gopher://runv.club/1/~you
+
+The menu is ~/public_gopher/gophermap. A line without tabs is plain
+text. A link is a type, a label and a selector separated by tabs, for
+example a text file and a menu:
+
+  0My notes<TAB>/~you/notes.txt
+  1Old stuff<TAB>/~you/old
+
+Files must be readable by others (chmod 644). Scripts and executable
+gophermaps are turned off here.

@@ -1,0 +1,12 @@
+Your keys are in ~/.ssh/authorized_keys, one per line. To add one, for
+a second computer say, paste its public key on a new line:
+
+  nano ~/.ssh/authorized_keys
+
+Keep the permissions tight or SSH will ignore the file:
+
+  chmod 700 ~/.ssh
+  chmod 600 ~/.ssh/authorized_keys
+
+Lost every key you had? Write to admin@runv.club from the email you
+signed up with.

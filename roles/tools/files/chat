@@ -1,0 +1,20 @@
+#!/bin/sh
+# weechat on tilde.chat, in #runv. the first run sets the server up, after
+# that it's plain weechat and you can change anything you like.
+# CHAT_CHANNEL picks another channel for that first run.
+set -eu
+channel="${CHAT_CHANNEL:-#runv}"
+conf="${XDG_CONFIG_HOME:-$HOME/.config}/weechat/irc.conf"
+
+if [ -f "$conf" ] && grep -q '^tilde\.addresses' "$conf"; then
+    exec weechat "$@"
+fi
+
+exec weechat -r "/server add tilde irc.tilde.chat/6697 -tls;\
+/set irc.server.tilde.nicks $USER;\
+/set irc.server.tilde.username $USER;\
+/set irc.server.tilde.realname $USER@runv.club;\
+/set irc.server.tilde.autojoin $channel;\
+/set irc.server.tilde.autoconnect on;\
+/save;\
+/connect tilde" "$@"

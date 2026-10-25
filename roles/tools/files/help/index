@@ -1,0 +1,13 @@
+help TOPIC, where TOPIC is one of:
+
+  web      your page at https://runv.club/~you/
+  gemini   your capsule at gemini://runv.club/~you/
+  gopher   your hole at gopher://runv.club/1/~you
+  i2p      your eepsite on the I2P network
+  chat     #runv on tilde.chat
+  keys     adding or replacing SSH keys
+  quota    disk space and other limits
+  backups  what is backed up and what isn't
+  rules    the short version
+
+Something not covered here? admin@runv.club
