@@ -40,6 +40,21 @@ molly-brown only reads under `/var/gemini`, so each active member's
 The Gemini certificate is self-signed and made once. Clients pin it, so
 don't regenerate it.
 
+## I2P
+
+Every member gets an eepsite with an address of their own, served from
+`~/public_i2p`. `runv-user` writes one i2pd tunnel per member in
+`/etc/i2pd/tunnels.d` and leaves the address in `~/.i2p-address`. The key
+in `/var/lib/i2pd/runv` is the address, so it's backed up as soon as it
+exists and only goes away with the account. i2pd runs with no console and
+no proxies.
+
+## On the box
+
+Members get `help` (topics live in `/usr/local/share/runv/help`), `chat`
+(weechat into #runv on tilde.chat) and the usual tools: editors, git,
+python, gcc, tmux, irssi.
+
 ## Signups
 
 The form at `/join` only drops requests into `/var/lib/runv-join/queue`.
