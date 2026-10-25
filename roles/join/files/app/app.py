@@ -191,4 +191,4 @@ def confirm(token):
 
 @app.get("/join/rules")
 def rules():
-    return render_template("rules.html")
+    return redirect("/rules", code=301)

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>runv.club privacy</title>
+<style>
+  html { background: #fff; color: #000; }
+  body { max-width: 34rem; margin: 0 auto; padding: 4rem 1.25rem; font: 1.125rem/1.7 Georgia, "Times New Roman", serif; }
+  h1 { font-size: 1.5rem; font-weight: normal; margin: 0 0 2rem; }
+  h2 { font-size: 1.125rem; margin: 2rem 0 .5rem; }
+  p, ul { margin: 0 0 1.25rem; }
+  a { color: #000; }
+</style>
+</head>
+<body>
+<main>
+<h1>Privacy</h1>
+
+<p>runv.club is run by Pablo Murad, from Brazil. The server is a VPS from Contabo in France. Questions, or a request to see or delete your data: <a href="mailto:admin@runv.club">admin@runv.club</a>.</p>
+
+<h2>When you ask to join</h2>
+<p>We keep the username you picked, your email, your SSH public key, what you wrote about yourself and whether you were a member before. Only the admins read it. If you're turned down, drop out of the line or don't answer the 60 day check, the request is deleted right away.</p>
+
+<h2>When you're a member</h2>
+<p>We keep your username, email, the fingerprint of your key and when the account was created or changed. The email is only used to write to you about your account. It is never shown, shared or sold. Mail goes out through Mailgun.</p>
+<p>Everything in your home directory is yours. The admins can technically read it, and only do when something on the server needs fixing or a rule may have been broken.</p>
+
+<h2>Logs</h2>
+<p>The web server logs the IP address, time, page and browser of each visit, and keeps that for 14 days. Logins over SSH and requests to the Gemini and Gopher servers go to the system log, kept for up to 90 days. Visitors who come through I2P arrive without an IP address. There are no cookies, trackers or analytics on any runv.club page.</p>
+
+<h2>Backups</h2>
+<p>The server is backed up every 15 days, and the signup line and member list again whenever they change. Backups are encrypted before they leave the machine and stored with Contabo in the EU. Full backups are kept for about 3 months. The quick copies of the signup line are kept for 30 days.</p>
+
+<h2>Leaving</h2>
+<p>When an account is deleted, its home directory is kept for 14 days in case it was a mistake, then removed. It disappears from the backups as they age out, within about 3 months.</p>
+
+<h2>Chat</h2>
+<p>#runv lives on tilde.chat, a separate network run by other people, with <a href="https://tilde.wiki/Code_of_conduct">its own rules</a> and its own logs.</p>
+
+<p>The LGPD (Brazil) and the GDPR (EU) give you the right to see, correct and delete what we hold about you. Write to <a href="mailto:admin@runv.club">admin@runv.club</a> and we'll answer within 15 days.</p>
+
+<p><a href="/">runv.club</a> · <a href="/rules">rules</a></p>
+</main>
+</body>
+</html>

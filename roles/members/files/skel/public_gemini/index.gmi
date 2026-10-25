@@ -1,5 +1,5 @@
 # Nothing here yet
 
-Edit ~/public_gemini/index.gmi to change this page.
+Edit ~/public_gemini/index.gmi to change this page. Type "help gemini" on the server for more.
 
 => / runv.club
