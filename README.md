@@ -51,9 +51,57 @@ no proxies.
 
 ## On the box
 
-Members get `help` (topics live in `/usr/local/share/runv/help`), `chat`
-(weechat into #runv on tilde.chat) and the usual tools: editors, git,
-python, gcc, tmux, irssi.
+Members get `help` (topics live in `/usr/local/share/runv/help`), a
+login banner that's different every time (`motd`), and the usual tools:
+editors, git, python, gcc, tmux, irssi, weechat, senpai.
+
+`runv` is the member dashboard, in the terminal: keys, tokens, pages,
+blog, pastes, access logs, stats and the state of every service. Every
+screen also prints as plain text (`runv keys`, `runv analytics`). The few
+things that need root go through `runv-priv`, which members can run with
+sudo. It only ever acts on whoever called it and takes no free arguments.
+
+- `blog`: markdown in `~/blog` becomes a blog with an Atom feed on the
+  web, Gemini and Gopher. A timer rebuilds it as the member, every 3
+  minutes, when something changed. `runv-planet` collects everyone's
+  posts at `/planet` and on the home page, and writes `/tilde.json`.
+- `paste`: text from stdin to `~/public_html/p`, with an expiry.
+- `tw`: twtxt in `~/public_html/twtxt.txt`, with a timeline of all members.
+- `board`: a forum in the terminal. Posts are written by `runv-priv`
+  into `/var/lib/runv-board`, so nobody can touch other people's posts.
+- finger on port 79 shows `~/.plan` and who is on.
+
+## IRC bouncer
+
+soju at `irc.runv.club:6697`, gamja at `https://chat.runv.club`. Every
+member gets a bouncer account on tilde.chat in #runv, with the password
+in `~/.config/runv/irc-token`. `chat` opens senpai on it. Members can add
+up to 3 networks. Accounts idle for 30 days get disconnected until they
+log in again, and suspending a member locks theirs.
+
+## Tunnels and apps
+
+Whatever listens on `/run/runv-apps/NAME/app.sock` is served at
+`https://NAME.tun.runv.club`: a tunnel from the member's machine
+(`ssh -R /run/runv-apps/NAME/app.sock:localhost:8000 NAME@runv.club -N`)
+or an app under `systemd --user` (lingering is on for members). Members
+may only forward to sockets: no `-L`, `-D` or TCP `-R`, so the box can't
+be used as a proxy. `runv-tun-cert` keeps one certificate with every
+active member's name on it.
+
+## Stats
+
+nginx logs `~member` requests to their own file. `runv-stats` runs every
+hour and gives each member an access log with addresses cut down, kept
+14 days, and, if they turned analytics on, counts of unique visitors
+(hashed with a salt that's thrown away every day), pages and referrers,
+kept a year. No address is stored.
+
+## ntfy and feeds
+
+`ntfy.runv.club` is closed by default. `runv token ntfy` gives a member
+a user whose only topics start with their name. `feeds.runv.club` is
+miniflux on postgres, with login through Forgejo only.
 
 ## Mail in
 
@@ -80,7 +128,9 @@ accounts and the repos.
 
 ## Signups
 
-The form at `/join` only drops requests into `/var/lib/runv-join/queue`.
+The form at `/join`, and `ssh join@runv.club` (a user with no password
+whose only command asks the same questions and posts to the same form),
+only drop requests into `/var/lib/runv-join/queue`.
 Nothing gets created until someone runs:
 
     sudo runv-queue list
@@ -98,6 +148,7 @@ restic to S3. A full backup runs on the 1st and the 16th and the last 6
 are kept. The member list, the signup queue and the I2P keys are also
 sent right after they change. The Forgejo and linkding databases are
 copied with SQLite's backup API into `/var/backups/runv-db` before each
-full run, and that copy is what gets backed up.
+full run, along with the soju and ntfy databases and a `pg_dump` of
+miniflux, and those copies are what gets backed up.
 
     sudo runv-backup status

@@ -408,8 +408,9 @@ def feeds_sql(sql, name):
     u = forgejo("GET", f"/users/{name}")
     if not u:
         return
+    # psql only fills in :'oid' in sql it reads, not in -c
     run("runuser", "-u", "postgres", "--", "psql", "-q", "-d", "miniflux",
-        "-v", f"oid={u['id']}", "-c", sql, check=False)
+        "-v", f"oid={u['id']}", "-v", "ON_ERROR_STOP=1", input=sql + ";\n", cwd="/", check=False)
 
 
 def feeds_logout(name):

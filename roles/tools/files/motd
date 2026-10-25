@@ -231,6 +231,13 @@ def tip(user):
         "your repos live at https://git.runv.club",
         "save links at https://links.runv.club",
         "lost? type " + paint("help", bold=True),
+        "your dashboard: type " + paint("runv", bold=True),
+        "blog: put markdown in ~/blog, it shows up everywhere",
+        "share text: git diff | paste",
+        "your own address: https://%s.tun.runv.club (help apps)" % user,
+        "tell the world what you're up to: tw \"hello\"",
+        "the members forum: type " + paint("board", bold=True),
+        "write a ~/.plan and try: finger %s@runv.club" % user,
     ]
     if os.path.exists(os.path.expanduser("~/.i2p-address")):
         tips.append("you have an eepsite. cat ~/.i2p-address")
@@ -306,7 +313,7 @@ def main():
         print("  " + paint("news ", accent, bold=True) + item)
     print("  " + paint("tip  ", accent, bold=True) + tip(user))
     print()
-    print("  " + paint("help · chat · motd --party · runv.club/rules", (110, 110, 110)))
+    print("  " + paint("runv · help · chat · board · motd --party", (110, 110, 110)))
     print()
 
 
