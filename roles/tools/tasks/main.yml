@@ -25,6 +25,7 @@
       - bc
       - weechat-curses
       - irssi
+      - python3-markdown
     state: present
     install_recommends: false
 
@@ -46,11 +47,15 @@
 
 - name: dashboard
   ansible.builtin.copy:
-    src: runv
-    dest: /usr/local/bin/runv
+    src: "{{ item }}"
+    dest: /usr/local/bin/{{ item }}
     owner: root
     group: root
     mode: "0755"
+  loop:
+    - runv
+    - blog
+    - paste
 
 - name: help topics
   ansible.builtin.copy:

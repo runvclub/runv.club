@@ -1,0 +1,21 @@
+Write markdown in ~/blog and it becomes a blog, on the web, on gemini
+and on gopher at once:
+
+  https://runv.club/~you/blog/
+  gemini://runv.club/~you/blog/
+  gopher://runv.club/1/~you/blog
+
+From your own machine:  scp post.md runv.club:blog/
+On the server:          blog new my-first-post
+
+The server rebuilds within 3 minutes, or run `blog build` to see it now.
+A post can start with a small header, all optional:
+
+  ---
+  title: My first post
+  date: 2026-10-25
+  draft: true
+  ---
+
+Without a title, the first "# heading" is used. Drafts aren't published.
+Your posts also show up on https://runv.club/planet/ and the home page.

@@ -7,6 +7,8 @@ help TOPIC, where TOPIC is one of:
   chat     #runv on tilde.chat
   git      your repositories at https://git.runv.club
   links    your bookmarks at https://links.runv.club
+  blog     markdown in ~/blog, on web, gemini and gopher
+  paste    share text with a link
   keys     adding or replacing SSH keys
   quota    disk space and other limits
   backups  what is backed up and what isn't

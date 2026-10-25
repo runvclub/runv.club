@@ -26,6 +26,11 @@ server {
     autoindex off;
     disable_symlinks if_not_owner;
 
+    # the home page pulls in the latest planet posts
+    location = /index.html {
+        ssi on;
+    }
+
     location = /farewell {
         try_files /farewell.html =404;
     }

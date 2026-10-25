@@ -58,6 +58,8 @@
     - runv-weekly
     - runv-priv
     - runv-stats
+    - runv-planet
+    - runv-members-tick
 
 # members reach runv-priv through sudo, and nothing else. it works out who
 # called it from SUDO_USER and takes fixed subcommands only
@@ -116,6 +118,10 @@
     - runv-i2p-sync.service
     - runv-stats.service
     - runv-stats.timer
+    - runv-planet.service
+    - runv-planet.timer
+    - runv-members-tick.service
+    - runv-members-tick.timer
   notify: daemon reload
 
 - name: reload units now
@@ -135,6 +141,8 @@
     - runv-queue-notify.timer
     - runv-queue-tick.timer
     - runv-stats.timer
+    - runv-planet.timer
+    - runv-members-tick.timer
 
 - name: gemini mounts at boot
   ansible.builtin.systemd_service:

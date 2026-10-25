@@ -1,0 +1,18 @@
+#!/bin/sh
+# every few minutes, as each member: rebuild the blog if ~/blog changed,
+# and drop expired pastes. nothing here runs as root on member files.
+set -u
+for home in /home/*; do
+    name=$(basename "$home")
+    id -nG "$name" 2>/dev/null | grep -qw members || continue
+    [ "$(stat -c %a "$home")" = 711 ] || continue    # suspended homes are 700
+    if [ -d "$home/blog" ]; then
+        stamp="$home/public_html/blog/.built"
+        if [ ! -e "$stamp" ] || [ -n "$(find "$home/blog" -newer "$stamp" -print -quit 2>/dev/null)" ]; then
+            runuser -u "$name" -- env HOME="$home" timeout 60 blog build >/dev/null 2>&1 || true
+        fi
+    fi
+    if [ -f "$home/public_html/p/.expire" ]; then
+        runuser -u "$name" -- env HOME="$home" timeout 30 paste --clean >/dev/null 2>&1 || true
+    fi
+done

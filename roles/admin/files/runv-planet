@@ -1,0 +1,111 @@
+#!/usr/bin/python3 -I
+# hourly: the latest posts of every active member, at runv.club/planet,
+# as a feed, and as a short list included in the home page.
+import html
+import json
+import os
+import pwd
+import xml.etree.ElementTree as ET
+
+MEMBERS = "/var/lib/runv/members.json"
+OUT = "/var/www/runv/planet"
+A = "{http://www.w3.org/2005/Atom}"
+CSS = """html { background: #fff; color: #000; }
+body { max-width: 34rem; margin: 0 auto; padding: 4rem 1.25rem;
+  font: 1.125rem/1.7 Georgia, "Times New Roman", serif; }
+h1 { font-size: 1.5rem; font-weight: normal; margin: 0 0 2rem; }
+a { color: #000; }
+ul { list-style: none; padding: 0; }
+li { margin: 0 0 .75rem; }
+.who { color: #555; }
+footer { margin-top: 3rem; font-size: 1rem; }"""
+
+
+def feed_of(name, uid):
+    path = os.path.join(pwd.getpwnam(name).pw_dir, "public_html", "blog", "atom.xml")
+    try:
+        # a member's feed must be a real file of theirs, not a link to something else
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return []
+    with os.fdopen(fd, "rb") as f:
+        if os.fstat(f.fileno()).st_uid != uid or os.fstat(f.fileno()).st_size > 512 * 1024:
+            return []
+        try:
+            root = ET.fromstring(f.read())
+        except ET.ParseError:
+            return []
+    prefix = f"https://runv.club/~{name}/"
+    posts = []
+    for e in root.findall(f"{A}entry"):
+        link = e.find(f"{A}link")
+        url = link.get("href", "") if link is not None else ""
+        if not url.startswith(prefix):
+            continue
+        posts.append({"who": name, "title": (e.findtext(f"{A}title") or "untitled")[:200],
+                      "url": url, "date": (e.findtext(f"{A}updated") or "")[:10]})
+    return posts
+
+
+def write(path, text):
+    with open(path + ".new", "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(path + ".new", 0o644)
+    os.replace(path + ".new", path)
+
+
+def main():
+    try:
+        with open(MEMBERS) as f:
+            members = [m for m in json.load(f) if m["status"] == "active"]
+    except FileNotFoundError:
+        members = []
+    posts = []
+    for m in members:
+        posts += feed_of(m["username"], m["uid"])
+    posts.sort(key=lambda p: p["date"], reverse=True)
+    posts = posts[:50]
+    os.makedirs(OUT, mode=0o755, exist_ok=True)
+
+    def li(p):
+        return (f'<li><a href="{html.escape(p["url"])}">{html.escape(p["title"])}</a> '
+                f'<span class="who">~{p["who"]}, {p["date"]}</span></li>')
+
+    items = "\n".join(li(p) for p in posts) or "<li>no posts yet</li>"
+    write(os.path.join(OUT, "index.html"), f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>planet runv</title>
+<link rel="alternate" type="application/atom+xml" href="/planet/atom.xml">
+<style>
+{CSS}
+</style>
+</head>
+<body>
+<h1>planet runv</h1>
+<p>What the members of runv.club wrote lately.</p>
+<ul>
+{items}
+</ul>
+<footer><a href="/">runv.club</a> · <a href="/planet/atom.xml">feed</a></footer>
+</body>
+</html>
+""")
+    latest = "\n".join(li(p) for p in posts[:5])
+    write(os.path.join(OUT, "latest.html"),
+          f'<h2>Lately on the planet</h2>\n<ul class="planet">\n{latest}\n</ul>\n<p><a href="/planet/">More posts</a></p>\n'
+          if posts else "")
+    entries = "".join(
+        f"<entry><title>{html.escape(p['title'])} (~{p['who']})</title><link href=\"{html.escape(p['url'])}\"/>"
+        f"<id>{html.escape(p['url'])}</id><updated>{p['date'] or '2026-01-01'}T12:00:00Z</updated>"
+        f"<author><name>{p['who']}</name></author></entry>" for p in posts)
+    write(os.path.join(OUT, "atom.xml"), '<?xml version="1.0" encoding="utf-8"?>\n'
+          '<feed xmlns="http://www.w3.org/2005/Atom"><title>planet runv</title>'
+          '<link href="https://runv.club/planet/"/><id>https://runv.club/planet/</id>'
+          f"<updated>{(posts[0]['date'] if posts else '2026-01-01')}T12:00:00Z</updated>{entries}</feed>\n")
+
+
+if __name__ == "__main__":
+    main()

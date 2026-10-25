@@ -1,0 +1,6 @@
+[Unit]
+Description=runv member blogs and pastes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/runv-members-tick

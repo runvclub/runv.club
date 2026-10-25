@@ -1,0 +1,107 @@
+#!/usr/bin/python3 -I
+# paste: share text from the shell.
+#
+#   git diff | paste
+#   paste notes.txt --expire 7d
+#   paste --name fix.patch < fix.patch
+#   paste --list | paste --rm NAME
+#
+# pastes live in ~/public_html/p and expire after 30 days unless you say
+# otherwise (1h, 12h, 1d, 7d, 30d, never)
+import argparse
+import os
+import pwd
+import re
+import secrets
+import sys
+import time
+
+USER = pwd.getpwuid(os.getuid()).pw_name
+DIR = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "public_html", "p")
+EXPIRE = os.path.join(DIR, ".expire")
+UNITS = {"h": 3600, "d": 86400}
+
+
+def load():
+    try:
+        with open(EXPIRE) as f:
+            return dict(l.split() for l in f if len(l.split()) == 2)
+    except OSError:
+        return {}
+
+
+def save(exp):
+    with open(EXPIRE + ".new", "w") as f:
+        f.writelines(f"{k} {v}\n" for k, v in sorted(exp.items()))
+    os.replace(EXPIRE + ".new", EXPIRE)
+
+
+def clean():
+    exp, now = load(), time.time()
+    gone = [k for k, v in exp.items() if v != "never" and float(v) < now]
+    for k in gone:
+        try:
+            os.remove(os.path.join(DIR, k))
+        except FileNotFoundError:
+            pass
+        del exp[k]
+    if gone:
+        save(exp)
+    return gone
+
+
+def main():
+    p = argparse.ArgumentParser(prog="paste")
+    p.add_argument("file", nargs="?")
+    p.add_argument("--name")
+    p.add_argument("--expire", default="30d")
+    p.add_argument("--list", action="store_true")
+    p.add_argument("--rm")
+    p.add_argument("--clean", action="store_true", help=argparse.SUPPRESS)
+    a = p.parse_args()
+
+    if a.clean:
+        clean()
+        return
+    if a.list:
+        exp = load()
+        for k in sorted(os.listdir(DIR)) if os.path.isdir(DIR) else []:
+            if not k.startswith("."):
+                left = exp.get(k, "never")
+                left = "never" if left == "never" else time.strftime("%Y-%m-%d %H:%M", time.localtime(float(left)))
+                print(f"{k:<32} expires {left}")
+        return
+    if a.rm:
+        name = os.path.basename(a.rm)
+        os.remove(os.path.join(DIR, name))
+        exp = load()
+        exp.pop(name, None)
+        save(exp)
+        print(f"{name} removed")
+        return
+
+    m = re.fullmatch(r"(\d+)([hd])|never", a.expire)
+    if not m:
+        sys.exit("paste: --expire takes things like 1h, 7d or never")
+    data = open(a.file, "rb").read() if a.file else sys.stdin.buffer.read()
+    if not data:
+        sys.exit("paste: nothing to paste")
+    if len(data) > 1024 * 1024:
+        sys.exit("paste: that's over 1MB, put it in ~/public_html instead")
+
+    name = a.name or (os.path.basename(a.file) if a.file else secrets.token_urlsafe(5).lower())
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", name).lstrip(".") or "paste"
+    # browsers show .txt instead of downloading it
+    if not name.endswith(".txt"):
+        name += ".txt"
+    os.makedirs(DIR, exist_ok=True)
+    with open(os.path.join(DIR, name), "wb") as f:
+        f.write(data)
+    exp = load()
+    exp[name] = "never" if a.expire == "never" else str(time.time() + int(m.group(1)) * UNITS[m.group(2)])
+    save(exp)
+    print(f"https://runv.club/~{USER}/p/{name}")
+
+
+if __name__ == "__main__":
+    main()

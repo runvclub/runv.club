@@ -1,0 +1,215 @@
+#!/usr/bin/python3 -I
+# blog: markdown in ~/blog becomes a blog on the web, gemini and gopher.
+#
+#   blog build     rebuild now (the server also does it every few minutes)
+#   blog new NAME  start ~/blog/NAME.md
+#
+# a post can start with a small header, all of it optional:
+#
+#   ---
+#   title: My first post
+#   date: 2026-10-25
+#   draft: true
+#   ---
+#
+# without a title, the first "# heading" is used. without a date, the
+# file's own date.
+import datetime as dt
+import html
+import os
+import pwd
+import re
+import sys
+
+import markdown
+
+USER = pwd.getpwuid(os.getuid()).pw_name
+HOME = pwd.getpwuid(os.getuid()).pw_dir
+SRC = os.path.join(HOME, "blog")
+WEB = os.path.join(HOME, "public_html", "blog")
+GEM = os.path.join(HOME, "public_gemini", "blog")
+GOPH = os.path.join(HOME, "public_gopher", "blog")
+BASE_WEB = f"https://runv.club/~{USER}/blog/"
+BASE_GEM = f"gemini://runv.club/~{USER}/blog/"
+STAMP = os.path.join(WEB, ".built")
+
+CSS = """html { background: #fff; color: #000; }
+body { max-width: 34rem; margin: 0 auto; padding: 4rem 1.25rem;
+  font: 1.125rem/1.7 Georgia, "Times New Roman", serif; }
+h1 { font-size: 1.5rem; font-weight: normal; margin: 0 0 .5rem; }
+h2, h3 { font-weight: normal; }
+a { color: #000; }
+pre { overflow-x: auto; font-size: .95rem; }
+img { max-width: 100%; }
+.date { color: #555; margin: 0 0 2rem; }
+ul.posts { list-style: none; padding: 0; }
+ul.posts li { margin: 0 0 .5rem; }
+footer { margin-top: 3rem; font-size: 1rem; }"""
+
+
+def page(title, body):
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<link rel="alternate" type="application/atom+xml" href="{BASE_WEB}atom.xml">
+<style>
+{CSS}
+</style>
+</head>
+<body>
+{body}
+<footer><a href="{BASE_WEB}">~{USER}/blog</a> · <a href="{BASE_WEB}atom.xml">feed</a> · <a href="https://runv.club/">runv.club</a></footer>
+</body>
+</html>
+"""
+
+
+def parse(path):
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    meta = {}
+    if text.startswith("---\n"):
+        head, _, rest = text[4:].partition("\n---\n")
+        if rest or text.rstrip().endswith("---"):
+            for line in head.splitlines():
+                k, _, v = line.partition(":")
+                meta[k.strip().lower()] = v.strip()
+            text = rest
+    title = meta.get("title")
+    if not title:
+        m = re.search(r"^# (.+)$", text, re.M)
+        title = m.group(1).strip() if m else os.path.basename(path)[:-3]
+        if m:
+            text = text.replace(m.group(0), "", 1)
+    try:
+        date = dt.date.fromisoformat(meta.get("date", "")[:10])
+    except ValueError:
+        date = dt.date.fromtimestamp(os.path.getmtime(path))
+    slug = re.sub(r"[^a-z0-9-]+", "-", os.path.basename(path)[:-3].lower()).strip("-") or "post"
+    return {"slug": slug, "title": title, "date": date, "body": text.strip() + "\n",
+            "draft": meta.get("draft", "").lower() in ("true", "yes", "1")}
+
+
+def gemtext(md):
+    """Markdown to gemtext: links go on their own lines after each paragraph."""
+    out, links, code = [], [], False
+    for line in md.splitlines():
+        if line.startswith("```"):
+            code = not code
+            out.append("```")
+            continue
+        if code:
+            out.append(line)
+            continue
+        found = re.findall(r"!?\[([^\]]*)\]\(([^)\s]+)[^)]*\)", line)
+        line = re.sub(r"!?\[([^\]]*)\]\(([^)\s]+)[^)]*\)", r"\1", line)
+        line = re.sub(r"(\*\*|__|`)", "", line)
+        line = re.sub(r"^(\s*)[-+] ", r"\1* ", line)
+        line = re.sub(r"^\s+\* ", "* ", line)
+        links += [(url, text or url) for text, url in found]
+        if not line.strip() and links:
+            out += [f"=> {u} {t}" for u, t in links]
+            links = []
+        out.append(line)
+    out += [f"=> {u} {t}" for u, t in links]
+    return "\n".join(out).strip() + "\n"
+
+
+def atom(posts, base, ext):
+    def entry(p):
+        url = f"{base}{p['slug']}{ext}"
+        return (f"<entry><title>{html.escape(p['title'])}</title><link href=\"{url}\"/>"
+                f"<id>{url}</id><updated>{p['date']}T12:00:00Z</updated></entry>")
+    updated = posts[0]["date"] if posts else dt.date.today()
+    return ('<?xml version="1.0" encoding="utf-8"?>\n'
+            '<feed xmlns="http://www.w3.org/2005/Atom">'
+            f"<title>~{USER}</title><link href=\"{base}\"/><id>{base}</id>"
+            f"<author><name>{USER}</name></author><updated>{updated}T12:00:00Z</updated>"
+            + "".join(entry(p) for p in posts[:30]) + "</feed>\n")
+
+
+def write(path, text):
+    """Only touch files that changed, so mtimes mean something."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            if f.read() == text:
+                return
+    except OSError:
+        pass
+    with open(path + ".new", "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(path + ".new", path)
+
+
+def clean(folder, keep):
+    for name in os.listdir(folder):
+        if not name.startswith(".") and name not in keep and os.path.isfile(os.path.join(folder, name)):
+            os.remove(os.path.join(folder, name))
+
+
+def build():
+    if not os.path.isdir(SRC):
+        return 0
+    posts = []
+    for name in os.listdir(SRC):
+        if name.endswith(".md") and not name.startswith(".") and os.path.isfile(os.path.join(SRC, name)):
+            p = parse(os.path.join(SRC, name))
+            if not p["draft"]:
+                posts.append(p)
+    posts.sort(key=lambda p: (p["date"], p["slug"]), reverse=True)
+    for d in (WEB, GEM, GOPH):
+        os.makedirs(d, exist_ok=True)
+
+    md = markdown.Markdown(extensions=["fenced_code", "tables"])
+    keep_web, keep_gem, keep_goph = {"index.html", "atom.xml"}, {"index.gmi", "atom.xml"}, {"gophermap"}
+    for p in posts:
+        body = md.reset().convert(p["body"])
+        write(os.path.join(WEB, p["slug"] + ".html"), page(
+            p["title"], f"<h1>{html.escape(p['title'])}</h1>\n<p class=\"date\">{p['date']}</p>\n{body}"))
+        write(os.path.join(GEM, p["slug"] + ".gmi"),
+              f"# {p['title']}\n{p['date']}\n\n{gemtext(p['body'])}\n=> {BASE_GEM} ~{USER}/blog\n")
+        write(os.path.join(GOPH, p["slug"] + ".txt"), f"{p['title']}\n{p['date']}\n\n{p['body']}")
+        keep_web.add(p["slug"] + ".html")
+        keep_gem.add(p["slug"] + ".gmi")
+        keep_goph.add(p["slug"] + ".txt")
+
+    items = "\n".join(f'<li>{p["date"]} · <a href="{p["slug"]}.html">{html.escape(p["title"])}</a></li>'
+                      for p in posts) or "<li>nothing here yet</li>"
+    write(os.path.join(WEB, "index.html"), page(f"~{USER}/blog", f"<h1>~{USER}/blog</h1>\n<ul class=\"posts\">\n{items}\n</ul>"))
+    write(os.path.join(WEB, "atom.xml"), atom(posts, BASE_WEB, ".html"))
+    write(os.path.join(GEM, "index.gmi"), f"# ~{USER}/blog\n\n"
+          + "".join(f"=> {p['slug']}.gmi {p['date']} {p['title']}\n" for p in posts)
+          + "\n=> atom.xml feed\n")
+    write(os.path.join(GEM, "atom.xml"), atom(posts, BASE_GEM, ".gmi"))
+    write(os.path.join(GOPH, "gophermap"), f"i~{USER}/blog\n\n"
+          + "".join(f"0{p['date']} {p['title']}\t{p['slug']}.txt\n" for p in posts))
+    clean(WEB, keep_web)
+    clean(GEM, keep_gem)
+    clean(GOPH, keep_goph)
+    with open(STAMP, "w"):
+        pass
+    return len(posts)
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ["build"]:
+        n = build()
+        print(f"{n} posts at {BASE_WEB}")
+    elif args[:1] == ["new"] and len(args) == 2:
+        slug = re.sub(r"[^a-z0-9-]+", "-", args[1].lower()).strip("-")
+        os.makedirs(SRC, exist_ok=True)
+        path = os.path.join(SRC, slug + ".md")
+        if not os.path.exists(path):
+            with open(path, "w") as f:
+                f.write(f"---\ntitle: {args[1]}\ndate: {dt.date.today()}\n---\n\nWrite here.\n")
+        os.execvp(os.environ.get("EDITOR", "nano"), [os.environ.get("EDITOR", "nano"), path])
+    else:
+        print("usage: blog build | blog new NAME   (more: help blog)")
+
+
+if __name__ == "__main__":
+    main()

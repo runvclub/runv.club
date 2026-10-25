@@ -1,0 +1,9 @@
+[Unit]
+Description=runv member blogs and pastes, every 3 minutes
+
+[Timer]
+OnCalendar=*:0/3
+Persistent=true
+
+[Install]
+WantedBy=timers.target
