@@ -1,0 +1,195 @@
+- name: python venv
+  ansible.builtin.apt:
+    name: python3-venv
+    state: present
+    install_recommends: false
+
+- name: linkding user
+  ansible.builtin.user:
+    name: linkding
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/linkding
+    create_home: false
+
+# nginx only gets into favicons and previews, through the www-data group.
+# the setgid bit keeps new files in that group
+- name: data dirs
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: linkding
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /var/lib/linkding, group: linkding, mode: "0711" }
+    - { path: /var/lib/linkding/favicons, group: www-data, mode: "2750" }
+    - { path: /var/lib/linkding/previews, group: www-data, mode: "2750" }
+    - { path: /var/lib/linkding/assets, group: linkding, mode: "0700" }
+
+- name: install dir
+  ansible.builtin.file:
+    path: /opt/linkding
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: source
+  ansible.builtin.get_url:
+    url: https://github.com/sissbruecker/linkding/archive/refs/tags/v{{ linkding_version }}.tar.gz
+    dest: /var/cache/runv/linkding-{{ linkding_version }}.tar.gz
+    checksum: sha256:{{ linkding_sha256 }}
+    mode: "0644"
+
+- name: unpack
+  ansible.builtin.unarchive:
+    src: /var/cache/runv/linkding-{{ linkding_version }}.tar.gz
+    dest: /opt/linkding
+    remote_src: true
+    owner: root
+    group: root
+    creates: /opt/linkding/linkding-{{ linkding_version }}/manage.py
+
+# node is only needed to bundle the frontend. it comes in, builds, and leaves
+- name: frontend built
+  ansible.builtin.stat:
+    path: /opt/linkding/linkding-{{ linkding_version }}/bookmarks/static/bundle.js
+  register: bundle
+
+- name: build the frontend
+  when: not bundle.stat.exists
+  block:
+    - name: node for the build
+      ansible.builtin.apt:
+        name:
+          - nodejs
+          - npm
+        state: present
+        install_recommends: false
+
+    - name: npm ci and build
+      ansible.builtin.shell: npm ci --no-audit --no-fund && npm run build && rm -rf node_modules
+      args:
+        chdir: /opt/linkding/linkding-{{ linkding_version }}
+
+  always:
+    - name: node goes away again
+      ansible.builtin.apt:
+        name:
+          - nodejs
+          - npm
+        state: absent
+        purge: true
+        autoremove: true
+
+- name: data lives outside the code
+  ansible.builtin.file:
+    src: /var/lib/linkding
+    dest: /opt/linkding/linkding-{{ linkding_version }}/data
+    state: link
+    force: true
+
+- name: current version
+  ansible.builtin.file:
+    src: /opt/linkding/linkding-{{ linkding_version }}
+    dest: /opt/linkding/app
+    state: link
+  notify: restart linkding
+
+- name: venv and deps
+  ansible.builtin.pip:
+    name: "{{ linkding_python_deps }}"
+    virtualenv: /opt/linkding/venv
+    virtualenv_command: python3 -m venv
+  notify: restart linkding
+
+- name: oauth app in forgejo
+  ansible.builtin.shell: |
+    umask 077
+    curl -sf -X POST http://127.0.0.1:3000/api/v1/user/applications/oauth2 \
+      -H "Authorization: token $(cat /etc/runv/forgejo.token)" -H 'Content-Type: application/json' \
+      -d '{"name": "links.runv.club", "redirect_uris": ["https://links.runv.club/oidc/callback/"], "confidential_client": true}' \
+      | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print("client_id=" + d["client_id"]); print("client_secret=" + d["client_secret"])' \
+      > /etc/runv/linkding.oidc
+  args:
+    creates: /etc/runv/linkding.oidc
+
+- name: read oauth app
+  ansible.builtin.set_fact:
+    linkding_oidc:
+      client_id: "{{ lookup('ansible.builtin.ini', 'client_id', file='/etc/runv/linkding.oidc', type='properties') }}"
+      client_secret: "{{ lookup('ansible.builtin.ini', 'client_secret', file='/etc/runv/linkding.oidc', type='properties') }}"
+  no_log: true
+
+- name: environment
+  ansible.builtin.template:
+    src: linkding.env.j2
+    dest: /etc/runv/linkding.env
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: restart linkding
+
+- name: collect static files
+  ansible.builtin.shell: |
+    set -a; . /etc/runv/linkding.env; set +a
+    /opt/linkding/venv/bin/python manage.py collectstatic --noinput >/dev/null
+  args:
+    chdir: /opt/linkding/linkding-{{ linkding_version }}
+    creates: /opt/linkding/linkding-{{ linkding_version }}/static/bundle.js
+
+- name: database setup
+  ansible.builtin.shell: |
+    set -a; . /etc/runv/linkding.env; set +a
+    py=/opt/linkding/venv/bin/python
+    for step in generate_secret_key migrate enable_wal migrate_tasks; do
+      runuser -u linkding -- $py manage.py $step >/dev/null
+    done
+  args:
+    chdir: /opt/linkding/app
+  register: ld_db
+  changed_when: false
+
+# collectstatic runs as root and opens the task queue on the way, and the
+# first setup ran with a looser umask than the units
+- name: databases belong to linkding and nobody else
+  ansible.builtin.shell: |
+    for f in /var/lib/linkding/*.sqlite3* /var/lib/linkding/secretkey.txt; do
+      if [ "$(stat -c %U:%a "$f")" != "linkding:600" ]; then
+        chown linkding:linkding "$f"; chmod 600 "$f"; echo fixed
+      fi
+    done
+  register: ld_perms
+  changed_when: "'fixed' in ld_perms.stdout"
+
+- name: units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/systemd/system/{{ item }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - linkding.service
+    - linkding-tasks.service
+  notify: restart linkding
+
+- name: running
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - linkding
+    - linkding-tasks
+
+- name: vhost
+  ansible.builtin.template:
+    src: links.runv.club.conf.j2
+    dest: /etc/nginx/sites-enabled/links.runv.club.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx

@@ -1,0 +1,29 @@
+[Unit]
+Description=linkding background tasks
+After=network.target forgejo.service
+
+[Service]
+User=linkding
+Group=linkding
+WorkingDirectory=/opt/linkding/app
+EnvironmentFile=/etc/runv/linkding.env
+ExecStart=/opt/linkding/venv/bin/python manage.py run_huey -f
+Restart=on-failure
+UMask=0027
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/linkding
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

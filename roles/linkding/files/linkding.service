@@ -1,0 +1,29 @@
+[Unit]
+Description=linkding (links.runv.club)
+After=network.target forgejo.service
+
+[Service]
+User=linkding
+Group=linkding
+WorkingDirectory=/opt/linkding/app
+EnvironmentFile=/etc/runv/linkding.env
+ExecStart=/opt/linkding/venv/bin/gunicorn --bind 127.0.0.1:9090 --workers 2 bookmarks.wsgi:application
+Restart=on-failure
+UMask=0027
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/linkding
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+MemoryMax=384M
+
+[Install]
+WantedBy=multi-user.target

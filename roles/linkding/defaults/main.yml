@@ -1,0 +1,15 @@
+linkding_version: 1.47.0
+linkding_sha256: 6ada53ec63abef00a02dac80444b6469d83bb3e9e9d3a40e70c638aa818bf48b
+# from pyproject.toml, minus uwsgi and supervisor (gunicorn and systemd do that here)
+linkding_python_deps:
+  - beautifulsoup4>=4.14.3
+  - bleach>=6.4.0
+  - bleach-allowlist>=1.0.3
+  - django>=6.0.7
+  - djangorestframework>=3.16.1
+  - huey>=2.5.5
+  - markdown>=3.10
+  - mozilla-django-oidc>=5.0.2
+  - requests>=2.33.0
+  - waybackpy>=3.0.6
+  - gunicorn
