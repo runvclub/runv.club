@@ -49,18 +49,24 @@ def token_irc(m):
     return password, runvsecret.save(name, "irc-token", password)
 
 
+def ntfy(*args, env=None):
+    # as ntfy's own user, so its database never ends up owned by root
+    return subprocess.run(["runuser", "-u", "_ntfy", "--", "ntfy", *args],
+                          capture_output=True, text=True, env=env)
+
+
 def token_ntfy(m):
     if not os.path.exists("/usr/bin/ntfy"):
         die("ntfy isn't set up yet")
     name = m["username"]
+    # a new token means a fresh user: the old token dies with the old one
+    ntfy("user", "remove", name)
     env = dict(os.environ, NTFY_PASSWORD=secrets.token_urlsafe(24))
-    users = subprocess.run(["ntfy", "user", "list"], capture_output=True, text=True)
-    if f"user {name} " not in users.stdout + users.stderr:
-        subprocess.run(["ntfy", "user", "add", name], env=env, check=True, capture_output=True)
-        subprocess.run(["ntfy", "access", name, f"{name}-*", "rw"], check=True, capture_output=True)
-    else:
-        subprocess.run(["ntfy", "token", "remove", name, "--all"], capture_output=True)
-    out = subprocess.run(["ntfy", "token", "add", name], capture_output=True, text=True)
+    for args in (("user", "add", name), ("access", name, f"{name}-*", "rw")):
+        out = ntfy(*args, env=env)
+        if out.returncode != 0:
+            die("ntfy said no: " + (out.stderr or out.stdout).strip()[:200])
+    out = ntfy("token", "add", name)
     token = next((w for w in (out.stdout + out.stderr).split() if w.startswith("tk_")), None)
     if not token:
         die("ntfy didn't hand out a token")

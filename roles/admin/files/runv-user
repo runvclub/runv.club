@@ -394,9 +394,36 @@ def irc_off(name):
         runvirc.lock(name)
 
 
+# ntfy.runv.club users only exist once a member asks for a token
+def ntfy_remove(name):
+    if os.path.exists("/usr/bin/ntfy"):
+        run("runuser", "-u", "_ntfy", "--", "ntfy", "user", "remove", name, check=False)
+
+
+# feeds.runv.club. accounts appear on first login through git.runv.club.
+# miniflux names them by email, so they're found by the forgejo user id
+def feeds_sql(sql, name):
+    if not os.path.exists("/usr/bin/miniflux"):
+        return
+    u = forgejo("GET", f"/users/{name}")
+    if not u:
+        return
+    run("runuser", "-u", "postgres", "--", "psql", "-q", "-d", "miniflux",
+        "-v", f"oid={u['id']}", "-c", sql, check=False)
+
+
+def feeds_logout(name):
+    feeds_sql("delete from user_sessions where user_id in "
+              "(select id from users where openid_connect_id = :'oid')", name)
+
+
+def feeds_remove(name):
+    feeds_sql("delete from users where openid_connect_id = :'oid'", name)
+
+
 def services_off(name):
     for step in (lambda: forgejo_login(name, False), lambda: linkding_active(name, False),
-                 lambda: irc_off(name)):
+                 lambda: irc_off(name), lambda: ntfy_remove(name), lambda: feeds_logout(name)):
         try:
             step()
         except Exception as e:
@@ -612,6 +639,7 @@ def purge_one(m, db, conf):
         if busy:
             die(f"something is mounted under {path}: {', '.join(busy)}")
         shutil.rmtree(path)
+    feeds_remove(m["username"])
     try:
         forgejo_remove(m["username"])
     except Exception as e:
@@ -619,6 +647,7 @@ def purge_one(m, db, conf):
     linkding_remove(m["username"])
     if runvirc.available():
         runvirc.delete(m["username"])
+    ntfy_remove(m["username"])
     db.remove(m)
     log(f"purge {m['username']}")
     print(f"{m['username']} purged")

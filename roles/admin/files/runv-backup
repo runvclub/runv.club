@@ -17,11 +17,14 @@ full)
     export RESTIC_REPOSITORY="$(repo full)"
     # live sqlite files can be mid-write, back up a consistent copy instead
     mkdir -p /var/backups/runv-db
-    for db in /var/lib/forgejo/data/forgejo.db /var/lib/linkding/db.sqlite3 /var/lib/soju/main.db; do
+    for db in /var/lib/forgejo/data/forgejo.db /var/lib/linkding/db.sqlite3 /var/lib/soju/main.db /var/lib/ntfy/user.db; do
         [ -f "$db" ] || continue
         python3 -I -c 'import sqlite3, sys; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect(sys.argv[2]))' \
             "$db" "/var/backups/runv-db/$(basename "$db")"
     done
+    if [ -x /usr/bin/miniflux ]; then
+        runuser -u postgres -- pg_dump -Fc miniflux > /var/backups/runv-db/miniflux.pgdump
+    fi
     paths="/home /root /etc /opt /var/lib/runv /var/backups/runv-db"
     for p in /var/lib/forgejo /var/lib/linkding /var/lib/soju /var/lib/runv-join; do
         [ -d "$p" ] && paths="$paths $p"

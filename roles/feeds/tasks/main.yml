@@ -1,0 +1,51 @@
+# miniflux needs postgres. the debian package sets up its database on install
+- name: miniflux and postgres
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - miniflux
+    state: present
+    install_recommends: false
+
+- name: oauth app in forgejo
+  ansible.builtin.shell: |
+    umask 077
+    curl -sf -X POST http://127.0.0.1:3000/api/v1/user/applications/oauth2 \
+      -H "Authorization: token $(cat /etc/runv/forgejo.token)" -H 'Content-Type: application/json' \
+      -d '{"name": "feeds.runv.club", "redirect_uris": ["https://feeds.runv.club/oauth2/oidc/callback"], "confidential_client": true}' \
+      | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print("client_id=" + d["client_id"]); print("client_secret=" + d["client_secret"])' \
+      > /etc/runv/feeds.oidc
+  args:
+    creates: /etc/runv/feeds.oidc
+
+- name: read oauth app
+  ansible.builtin.set_fact:
+    feeds_oidc:
+      client_id: "{{ lookup('ansible.builtin.ini', 'client_id', file='/etc/runv/feeds.oidc', type='properties') }}"
+      client_secret: "{{ lookup('ansible.builtin.ini', 'client_secret', file='/etc/runv/feeds.oidc', type='properties') }}"
+  no_log: true
+
+- name: config
+  ansible.builtin.template:
+    src: miniflux.conf.j2
+    dest: /etc/miniflux/miniflux.conf
+    owner: root
+    group: miniflux
+    mode: "0640"
+  no_log: true
+  notify: restart miniflux
+
+- name: running
+  ansible.builtin.systemd_service:
+    name: miniflux
+    enabled: true
+    state: started
+
+- name: vhost
+  ansible.builtin.template:
+    src: feeds.runv.club.conf.j2
+    dest: /etc/nginx/sites-enabled/feeds.runv.club.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx

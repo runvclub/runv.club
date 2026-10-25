@@ -1,0 +1,15 @@
+DATABASE_URL_FILE=/etc/miniflux/database
+LISTEN_ADDR=127.0.0.1:8080
+BASE_URL=https://feeds.runv.club/
+HTTPS=1
+RUN_MIGRATIONS=1
+CREATE_ADMIN=0
+DISABLE_LOCAL_AUTH=1
+OAUTH2_PROVIDER=oidc
+OAUTH2_OIDC_DISCOVERY_ENDPOINT=https://git.runv.club
+OAUTH2_CLIENT_ID={{ feeds_oidc.client_id }}
+OAUTH2_CLIENT_SECRET={{ feeds_oidc.client_secret }}
+OAUTH2_REDIRECT_URL=https://feeds.runv.club/oauth2/oidc/callback
+OAUTH2_USER_CREATION=1
+POLLING_FREQUENCY=60
+BATCH_SIZE=50

@@ -1,0 +1,63 @@
+- name: ntfy
+  ansible.builtin.apt:
+    name: ntfy
+    state: present
+    install_recommends: false
+
+- name: data dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: _ntfy
+    group: _ntfy
+    mode: "0750"
+  loop:
+    - /var/lib/ntfy
+    - /var/cache/ntfy
+
+- name: config
+  ansible.builtin.copy:
+    src: server.yml
+    dest: /etc/ntfy/server.yml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart ntfy
+
+- name: unit drop-in dir
+  ansible.builtin.file:
+    path: /etc/systemd/system/ntfy.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: hardening
+  ansible.builtin.copy:
+    src: hardening.conf
+    dest: /etc/systemd/system/ntfy.service.d/runv.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart ntfy
+
+- name: running
+  ansible.builtin.systemd_service:
+    name: ntfy
+    enabled: true
+    state: started
+
+- name: the client service is not for us
+  ansible.builtin.systemd_service:
+    name: ntfy-client
+    enabled: false
+    state: stopped
+
+- name: vhost
+  ansible.builtin.template:
+    src: ntfy.runv.club.conf.j2
+    dest: /etc/nginx/sites-enabled/ntfy.runv.club.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx

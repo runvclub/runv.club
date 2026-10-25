@@ -1,0 +1,11 @@
+# ntfy.runv.club. closed by default: each member gets a user and a token
+# from `runv token ntfy`, and may only use topics that start with their name
+base-url: https://ntfy.runv.club
+listen-http: 127.0.0.1:2586
+behind-proxy: true
+cache-file: /var/cache/ntfy/cache.db
+cache-duration: 12h
+auth-file: /var/lib/ntfy/user.db
+auth-default-access: deny-all
+enable-signup: false
+enable-login: true
