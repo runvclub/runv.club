@@ -1,0 +1,67 @@
+#!/usr/bin/python3 -I
+# finger, one connection at a time from systemd. runs as a throwaway user,
+# so it only sees what members left readable: ~/.plan and ~/.project.
+#   finger @runv.club        who is on
+#   finger name@runv.club    that member's plan
+import grp
+import os
+import pwd
+import re
+import subprocess
+import sys
+
+LIMIT = 8192
+
+
+def readable(path, uid):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as f:
+        st = os.fstat(f.fileno())
+        if st.st_uid != uid or not (st.st_mode & 0o100000):
+            return None
+        text = f.read(LIMIT).decode("utf-8", "replace")
+    # no terminal tricks from a plan file
+    return re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text)
+
+
+def members():
+    try:
+        return set(grp.getgrnam("members").gr_mem)
+    except KeyError:
+        return set()
+
+
+def main():
+    query = sys.stdin.buffer.readline(256).decode("ascii", "replace").strip()
+    query = query.removeprefix("/W").strip()
+    out = []
+    if not query:
+        online = sorted({l.split()[0] for l in subprocess.run(["who"], capture_output=True, text=True).stdout.splitlines() if l.split()} & members())
+        out.append("runv.club, a small public unix server. https://runv.club/")
+        out.append("")
+        out.append("on now: " + (", ".join(online) if online else "nobody"))
+        out.append(f"members: {len(members())}")
+        out.append("")
+        out.append("finger name@runv.club for someone's plan")
+    elif re.fullmatch(r"[a-z][a-z0-9_]{1,15}", query) and query in members():
+        p = pwd.getpwnam(query)
+        out.append(f"~{query} on runv.club")
+        out.append(f"https://runv.club/~{query}/   gemini://runv.club/~{query}/")
+        for label, name in (("Project", ".project"), ("Plan", ".plan")):
+            text = readable(os.path.join(p.pw_dir, name), p.pw_uid)
+            out.append("")
+            if text:
+                out.append(f"{label}:")
+                out.append(text.rstrip())
+            elif label == "Plan":
+                out.append("No plan.")
+    else:
+        out.append("no one by that name here")
+    sys.stdout.write("\r\n".join(out) + "\r\n")
+
+
+if __name__ == "__main__":
+    main()

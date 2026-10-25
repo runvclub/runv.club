@@ -1,0 +1,10 @@
+[Unit]
+Description=finger for runv.club
+
+[Socket]
+ListenStream=79
+Accept=yes
+MaxConnections=20
+
+[Install]
+WantedBy=sockets.target

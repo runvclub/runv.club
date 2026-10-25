@@ -2,10 +2,19 @@
 # every few minutes, as each member: rebuild the blog if ~/blog changed,
 # and drop expired pastes. nothing here runs as root on member files.
 set -u
+# and keep each active member's tunnel dir in /run/runv-apps: theirs, with
+# group www-data so nginx can reach the socket in it
+apps=/run/runv-apps
 for home in /home/*; do
     name=$(basename "$home")
     id -nG "$name" 2>/dev/null | grep -qw members || continue
-    [ "$(stat -c %a "$home")" = 711 ] || continue    # suspended homes are 700
+    if [ "$(stat -c %a "$home")" != 711 ]; then    # suspended homes are 700
+        rm -rf "${apps:?}/$name"
+        continue
+    fi
+    if [ -d "$apps" ] && [ ! -d "$apps/$name" ]; then
+        install -d -o "$name" -g www-data -m 2770 "$apps/$name"
+    fi
     if [ -d "$home/blog" ]; then
         stamp="$home/public_html/blog/.built"
         if [ ! -e "$stamp" ] || [ -n "$(find "$home/blog" -newer "$stamp" -print -quit 2>/dev/null)" ]; then
@@ -15,4 +24,10 @@ for home in /home/*; do
     if [ -f "$home/public_html/p/.expire" ]; then
         runuser -u "$name" -- env HOME="$home" timeout 30 paste --clean >/dev/null 2>&1 || true
     fi
+done
+
+# tunnel dirs of people who are gone
+for d in "$apps"/*; do
+    [ -d "$d" ] || continue
+    id -nG "$(basename "$d")" 2>/dev/null | grep -qw members || rm -rf "$d"
 done

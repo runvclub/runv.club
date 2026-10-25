@@ -1,0 +1,171 @@
+- name: commands
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - { src: runv-join-ssh, dest: /usr/local/bin/runv-join-ssh }
+    - { src: runv-finger, dest: /usr/local/sbin/runv-finger }
+    - { src: runv-tun-cert, dest: /usr/local/sbin/runv-tun-cert }
+
+# ssh join@runv.club
+- name: join user
+  ansible.builtin.user:
+    name: join
+    system: true
+    shell: /bin/sh
+    home: /var/lib/runv-joinssh
+    create_home: true
+  register: join_user
+
+- name: join has no password
+  ansible.builtin.shell: |
+    if passwd -S join | awk '{print $2}' | grep -qx NP; then exit 0; fi
+    passwd -d join >/dev/null && echo changed
+  register: join_pw
+  changed_when: "'changed' in join_pw.stdout"
+
+- name: join home
+  ansible.builtin.file:
+    path: /var/lib/runv-joinssh
+    state: directory
+    owner: join
+    group: join
+    mode: "0700"
+
+- name: slice dir for join
+  ansible.builtin.file:
+    path: /etc/systemd/system/user-{{ join_user.uid }}.slice.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: limits for join sessions
+  ansible.builtin.copy:
+    content: |
+      [Slice]
+      MemoryMax=256M
+      TasksMax=30
+      CPUQuota=50%
+    dest: /etc/systemd/system/user-{{ join_user.uid }}.slice.d/50-runv.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: daemon reload
+
+# a bad sshd file would lock everyone out, so it's checked whole and
+# taken back out if sshd doesn't like it
+- name: sshd rules for members and join
+  block:
+    - name: sshd rules file
+      ansible.builtin.copy:
+        src: 05-runv-members.conf
+        dest: /etc/ssh/sshd_config.d/05-runv-members.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload ssh
+
+    - name: sshd likes it
+      ansible.builtin.command: sshd -t
+      changed_when: false
+  rescue:
+    - name: take it back out
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/05-runv-members.conf
+        state: absent
+
+    - name: stop here
+      ansible.builtin.fail:
+        msg: sshd rejected 05-runv-members.conf
+
+# finger
+- name: finger units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/systemd/system/{{ item }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - runv-finger.socket
+    - runv-finger@.service
+    - runv-tun-cert.service
+    - runv-tun-cert.timer
+  notify: daemon reload
+
+- name: units known now
+  ansible.builtin.meta: flush_handlers
+
+- name: finger listening
+  ansible.builtin.systemd_service:
+    name: runv-finger.socket
+    enabled: true
+    state: started
+
+- name: firewall for finger
+  ansible.builtin.command: ufw allow 79/tcp
+  register: ufw_rule
+  changed_when: "'Rule added' in ufw_rule.stdout"
+
+# tunnels and apps
+- name: tunnel socket dir at boot
+  ansible.builtin.copy:
+    src: runv-apps.tmpfiles
+    dest: /etc/tmpfiles.d/runv-apps.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: tunnel socket dir now
+  ansible.builtin.file:
+    path: /run/runv-apps
+    state: directory
+    owner: root
+    group: root
+    mode: "0751"
+
+- name: acme for tunnel names first
+  ansible.builtin.copy:
+    content: |
+      server {
+          listen 80;
+          listen [::]:80;
+          server_name tun.runv.club *.tun.runv.club;
+          location /.well-known/acme-challenge/ { root /var/www/acme; }
+      }
+    dest: /etc/nginx/sites-enabled/tun.conf
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  register: tun_bootstrap
+
+- name: nginx sees it
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  when: tun_bootstrap.changed
+
+- name: tunnel certificate
+  ansible.builtin.command: /usr/local/sbin/runv-tun-cert
+  args:
+    creates: /etc/letsencrypt/live/tun/fullchain.pem
+
+- name: tunnel vhost
+  ansible.builtin.copy:
+    src: tun.conf
+    dest: /etc/nginx/sites-enabled/tun.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: tunnel certificate keeps up with members
+  ansible.builtin.systemd_service:
+    name: runv-tun-cert.timer
+    enabled: true
+    state: started

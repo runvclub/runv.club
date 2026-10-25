@@ -56,6 +56,8 @@
     - runv
     - blog
     - paste
+    - tw
+    - board
 
 - name: help topics
   ansible.builtin.copy:

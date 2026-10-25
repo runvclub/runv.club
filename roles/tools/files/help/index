@@ -9,6 +9,12 @@ help TOPIC, where TOPIC is one of:
   links    your bookmarks at https://links.runv.club
   blog     markdown in ~/blog, on web, gemini and gopher
   paste    share text with a link
+  apps     your own app or tunnel at https://you.tun.runv.club
+  twtxt    tw "hello", a microblog in a text file
+  board    the members forum, in the terminal
+  finger   ~/.plan, for finger you@runv.club
+  ntfy     notifications and pub/sub at ntfy.runv.club
+  feeds    your RSS reader at https://feeds.runv.club
   keys     adding or replacing SSH keys
   quota    disk space and other limits
   backups  what is backed up and what isn't

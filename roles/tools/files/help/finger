@@ -1,0 +1,7 @@
+Anyone can run `finger you@runv.club` and see your ~/.plan, plus your
+~/.project if you have one. Write whatever you're up to:
+
+  echo "learning gemini, slowly" > ~/.plan
+
+`finger @runv.club` shows who is on. Keep the files readable by others
+(the default) or finger shows nothing.

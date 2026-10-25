@@ -538,6 +538,9 @@ def create(conf, db, name, mail, key, fingerprint):
         irc_add(name)
     except Exception as e:
         print(f"warning: no bouncer account yet ({e}). run: runv-user irc {name}", file=sys.stderr)
+    # apps under systemd --user keep running after logout
+    run("loginctl", "enable-linger", name, check=False)
+    run("systemctl", "start", "--no-block", "runv-tun-cert.service", check=False)
     log(f"add {name} uid={uid} key={fingerprint}")
 
     sent = runvmail.send(mail, "Welcome to runv.club", welcome_text(name, find(db, name).get("i2p")))
@@ -612,6 +615,7 @@ def cmd_delete(args, conf, db):
     if os.path.exists(i2p_key(name)):
         shutil.move(i2p_key(name), os.path.join(dest, ".i2p-key.dat"))
 
+    run("loginctl", "disable-linger", name, check=False)
     run("setquota", "-u", name, "0", "0", "0", "0", "/", check=False)
     run("crontab", "-r", "-u", name, check=False)
     run("userdel", name)
@@ -624,6 +628,7 @@ def cmd_delete(args, conf, db):
     m["deleted_at"] = now().isoformat()
     m["quarantine"] = dest
     save_db(db)
+    run("systemctl", "start", "--no-block", "runv-tun-cert.service", check=False)
     log(f"delete {name} home moved to {dest}")
     days = conf["delete"].getint("days")
     print(f"{name} deleted, home kept in {dest} for {days} days")

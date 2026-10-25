@@ -1,0 +1,11 @@
+ntfy.runv.club sends notifications to your phone or desktop, and works as
+pub/sub between machines. Your topics start with your name.
+
+  runv token ntfy                      get a token (once)
+  t=$(cat ~/.config/runv/ntfy-token)
+  curl -H "Authorization: Bearer $t" -d "backup done" https://ntfy.runv.club/you-alerts
+
+Subscribe in the ntfy app (server https://ntfy.runv.club, log in with
+the token) or with:  curl -H "Authorization: Bearer $t" https://ntfy.runv.club/you-alerts/json
+
+Messages are kept for 12 hours.

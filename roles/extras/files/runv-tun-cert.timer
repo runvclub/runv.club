@@ -1,0 +1,10 @@
+[Unit]
+Description=runv tunnel certificate, every hour
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

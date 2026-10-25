@@ -1,0 +1,8 @@
+twtxt is a microblog that lives in a text file, ~/public_html/twtxt.txt.
+
+  tw "hello world"         post
+  tw timeline              you, the other members, and who you follow
+  tw follow NAME URL       follow any twtxt.txt out there
+  tw unfollow NAME
+
+Anyone can follow you at https://runv.club/~you/twtxt.txt

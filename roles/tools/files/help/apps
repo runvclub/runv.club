@@ -1,0 +1,39 @@
+Your own address: https://you.tun.runv.club
+
+Whatever listens on the socket /run/runv-apps/you/app.sock shows up
+there. Two ways to fill it:
+
+1. A tunnel from your own machine, like pico.sh's tuns. Run your app
+   locally (say on port 8000), then:
+
+     ssh -R /run/runv-apps/you/app.sock:localhost:8000 you@runv.club -N
+
+   It's live while that ssh runs.
+
+2. An app running here, kept alive by systemd. Example in python,
+   ~/app.py:
+
+     import http.server, socketserver, os
+     sock = "/run/runv-apps/" + os.environ["USER"] + "/app.sock"
+     if os.path.exists(sock): os.remove(sock)
+     class H(http.server.BaseHTTPRequestHandler):
+         def do_GET(self):
+             self.send_response(200); self.end_headers()
+             self.wfile.write(b"hello from runv\n")
+     os.umask(0o007)
+     socketserver.UnixStreamServer.allow_reuse_address = True
+     with socketserver.UnixStreamServer(sock, H) as s: s.serve_forever()
+
+   ~/.config/systemd/user/runv-app.service:
+
+     [Service]
+     ExecStart=/usr/bin/python3 %h/app.py
+     Restart=on-failure
+     [Install]
+     WantedBy=default.target
+
+   then: systemctl --user enable --now runv-app
+
+The socket must be readable by its group (umask 007). Your app counts
+against your 1 GB of RAM and 200 processes, and the rules still apply:
+no proxies, and don't collect your visitors' data.

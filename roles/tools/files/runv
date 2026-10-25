@@ -265,12 +265,11 @@ def view_pastes():
 
 def view_apps():
     sock = f"/run/runv-apps/{USER}/app.sock"
-    unit = run("systemctl", "--user", "is-active", "runv-app.service").stdout.strip() or "-"
-    return [("your app", [("service", (unit, "green" if unit == "active" else "dim")),
-                          ("socket", ("listening" if os.path.exists(sock) else "none",
-                                      "green" if os.path.exists(sock) else "dim")),
-                          ("address", f"/~{USER}/app/")]),
-            ("how", ["type: help apps"])]
+    up = os.path.exists(sock)
+    return [("tunnel / app", [("socket", ("listening" if up else "nothing yet", "green" if up else "dim")),
+                              ("address", f"https://{USER}.tun.runv.club/")]),
+            ("from your machine", [f"ssh -R {sock}:localhost:8000 {USER}@runv.club -N"]),
+            ("more", ["help apps"])]
 
 
 def view_twtxt():

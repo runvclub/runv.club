@@ -1,0 +1,16 @@
+[Unit]
+Description=finger for runv.club
+
+[Service]
+ExecStart=/usr/local/sbin/runv-finger
+StandardInput=socket
+StandardOutput=socket
+DynamicUser=yes
+ProtectHome=read-only
+ProtectSystem=strict
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RuntimeMaxSec=10
+MemoryMax=64M

@@ -1,0 +1,7 @@
+[Unit]
+Description=runv tunnel certificate
+OnFailure=runv-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/runv-tun-cert

@@ -1,0 +1,9 @@
+The board is a small forum for members, right here in the terminal.
+
+  board              latest threads
+  board read N       read thread N
+  board new          start a thread (first line is the title)
+  board reply N      answer one
+
+It opens $EDITOR (nano if you never set one). What you post stays, so
+be the person you'd want to read.

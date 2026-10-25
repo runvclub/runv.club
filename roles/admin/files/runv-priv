@@ -6,6 +6,7 @@
 #   runv-priv whoami        the member's own record, as json
 #   runv-priv token irc     new password for the irc bouncer
 #   runv-priv token ntfy    new token for ntfy.runv.club
+#   runv-priv board new|reply N   post to the board, text on stdin
 import argparse
 import json
 import os
@@ -73,6 +74,39 @@ def token_ntfy(m):
     return token, runvsecret.save(name, "ntfy-token", token)
 
 
+BOARD = "/var/lib/runv-board/board.db"
+
+
+def board(m, action, thread):
+    import datetime as dt
+    import sqlite3
+    text = sys.stdin.read(20_000).strip()
+    if not text:
+        die("empty post")
+    os.makedirs(os.path.dirname(BOARD), mode=0o755, exist_ok=True)
+    c = sqlite3.connect(BOARD)
+    c.executescript("""
+        create table if not exists threads (id integer primary key, title, author, created);
+        create table if not exists posts (id integer primary key, thread, author, created, body);
+    """)
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+    if action == "new":
+        title, _, body = text.partition("\n")
+        title = title.strip()[:120]
+        if not title:
+            die("the first line is the title")
+        thread = c.execute("insert into threads (title, author, created) values (?, ?, ?)",
+                           (title, m["username"], now)).lastrowid
+        text = body.strip() or title
+    elif not c.execute("select 1 from threads where id = ?", (thread,)).fetchone():
+        die("no such thread")
+    c.execute("insert into posts (thread, author, created, body) values (?, ?, ?, ?)",
+              (thread, m["username"], now, text))
+    c.commit()
+    os.chmod(BOARD, 0o644)
+    print(f"posted. board read {thread}")
+
+
 def main():
     if os.geteuid() != 0:
         die("run this through runv")
@@ -81,9 +115,17 @@ def main():
     sub.add_parser("whoami")
     t = sub.add_parser("token")
     t.add_argument("service", choices=["irc", "ntfy"])
+    b = sub.add_parser("board")
+    b.add_argument("action", choices=["new", "reply"])
+    b.add_argument("thread", nargs="?", type=int)
     args = p.parse_args()
 
     m = caller()
+    if args.cmd == "board":
+        if args.action == "reply" and not args.thread:
+            die("reply to which thread?")
+        board(m, args.action, args.thread)
+        return
     if args.cmd == "whoami":
         print(json.dumps({k: m.get(k) for k in ("username", "created_at", "status", "i2p")}))
         return

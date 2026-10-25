@@ -1,0 +1,94 @@
+#!/usr/bin/python3 -I
+# tw: twtxt, a microblog in a text file.
+#
+#   tw "hello world"          post to ~/public_html/twtxt.txt
+#   tw timeline               you, the other members and who you follow
+#   tw follow NAME URL        follow a twtxt.txt from anywhere
+#   tw unfollow NAME
+import datetime as dt
+import glob
+import os
+import pwd
+import sys
+import urllib.request
+
+USER = pwd.getpwuid(os.getuid()).pw_name
+HOME = pwd.getpwuid(os.getuid()).pw_dir
+FEED = os.path.join(HOME, "public_html", "twtxt.txt")
+FOLLOW = os.path.join(HOME, ".config", "tw", "following")
+
+
+def parse(text, who):
+    for line in text.splitlines():
+        if not line or line.startswith("#") or "\t" not in line:
+            continue
+        when, msg = line.split("\t", 1)
+        try:
+            t = dt.datetime.fromisoformat(when.replace("Z", "+00:00"))
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=dt.timezone.utc)
+        except ValueError:
+            continue
+        yield t, who, msg
+
+
+def following():
+    try:
+        with open(FOLLOW) as f:
+            return [l.split(None, 1) for l in f if len(l.split(None, 1)) == 2]
+    except OSError:
+        return []
+
+
+def timeline():
+    posts = []
+    for path in glob.glob("/home/*/public_html/twtxt.txt"):
+        who = path.split("/")[2]
+        try:
+            with open(path, errors="replace") as f:
+                posts += parse(f.read(200_000), who)
+        except OSError:
+            pass
+    for who, url in following():
+        try:
+            with urllib.request.urlopen(url.strip(), timeout=5) as r:
+                posts += parse(r.read(200_000).decode(errors="replace"), who + "@")
+        except Exception:
+            print(f"(couldn't fetch {who})", file=sys.stderr)
+    posts.sort(reverse=True)
+    for t, who, msg in posts[:40][::-1]:
+        print(f"{t.astimezone().strftime('%m-%d %H:%M')}  {who:<12} {msg}")
+
+
+def post(msg):
+    os.makedirs(os.path.dirname(FEED), exist_ok=True)
+    new = not os.path.exists(FEED)
+    with open(FEED, "a") as f:
+        if new:
+            f.write(f"# nick = {USER}\n# url = https://runv.club/~{USER}/twtxt.txt\n")
+        f.write(f"{dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()}\t{msg}\n")
+    print(f"posted to https://runv.club/~{USER}/twtxt.txt")
+
+
+def main():
+    a = sys.argv[1:]
+    if not a:
+        print("usage: tw \"text\" | tw timeline | tw follow NAME URL | tw unfollow NAME")
+    elif a == ["timeline"]:
+        timeline()
+    elif a[0] == "follow" and len(a) == 3:
+        os.makedirs(os.path.dirname(FOLLOW), exist_ok=True)
+        with open(FOLLOW, "a") as f:
+            f.write(f"{a[1]} {a[2]}\n")
+        print(f"following {a[1]}")
+    elif a[0] == "unfollow" and len(a) == 2:
+        keep = [f"{w} {u}" if u.endswith("\n") else f"{w} {u}\n" for w, u in following() if w != a[1]]
+        with open(FOLLOW, "w") as f:
+            f.writelines(keep)
+        print(f"stopped following {a[1]}")
+    else:
+        post(" ".join(a).replace("\n", " ")[:500])
+
+
+if __name__ == "__main__":
+    main()

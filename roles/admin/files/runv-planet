@@ -63,6 +63,11 @@ def main():
     posts = []
     for m in members:
         posts += feed_of(m["username"], m["uid"])
+    tilde = {"name": "runv.club", "url": "https://runv.club/", "signup_url": "https://runv.club/join",
+             "want_users": True, "admin_email": "admin@runv.club",
+             "description": "A small public unix server from Brazil, in English.",
+             "users": sorted(m["username"] for m in members)}
+    write("/var/www/runv/tilde.json", json.dumps(tilde, indent=2) + "\n")
     posts.sort(key=lambda p: p["date"], reverse=True)
     posts = posts[:50]
     os.makedirs(OUT, mode=0o755, exist_ok=True)

@@ -1,0 +1,26 @@
+#!/bin/sh
+# one certificate for NAME.tun.runv.club of every active member. runs after
+# signups and deletions and once an hour, and only asks letsencrypt when
+# the list of names changed
+set -eu
+want=$(python3 -I -c '
+import json
+try:
+    db = json.load(open("/var/lib/runv/members.json"))
+except FileNotFoundError:
+    db = []
+names = ["tun.runv.club"] + sorted(m["username"] + ".tun.runv.club" for m in db if m["status"] == "active")
+print(" ".join(names))')
+have=""
+if [ -f /etc/letsencrypt/live/tun/fullchain.pem ]; then
+    have=$(openssl x509 -in /etc/letsencrypt/live/tun/fullchain.pem -noout -ext subjectAltName \
+        | grep -o 'DNS:[^,]*' | cut -d: -f2 | sort | tr '\n' ' ' | sed 's/ $//')
+fi
+sorted=$(echo "$want" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')
+[ "$have" = "$sorted" ] && exit 0
+args=""
+for n in $want; do args="$args -d $n"; done
+# shellcheck disable=SC2086
+certbot certonly --webroot -w /var/www/acme --cert-name tun $args \
+    --agree-tos --register-unsafely-without-email --non-interactive --quiet
+systemctl reload nginx
