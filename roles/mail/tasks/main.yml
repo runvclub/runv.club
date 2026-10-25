@@ -1,0 +1,86 @@
+- name: postfix without the debconf setup
+  ansible.builtin.debconf:
+    name: postfix
+    question: postfix/main_mailer_type
+    value: No configuration
+    vtype: select
+
+- name: postfix and srs
+  ansible.builtin.apt:
+    name:
+      - postfix
+      - postsrsd
+    state: present
+    install_recommends: false
+
+- name: postsrsd settings
+  ansible.builtin.copy:
+    src: postsrsd
+    dest: /etc/default/postsrsd
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart postsrsd
+
+- name: main.cf
+  ansible.builtin.template:
+    src: main.cf.j2
+    dest: /etc/postfix/main.cf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload postfix
+
+- name: master.cf
+  ansible.builtin.copy:
+    src: master.cf
+    dest: /etc/postfix/master.cf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload postfix
+
+- name: forwards
+  ansible.builtin.template:
+    src: virtual.j2
+    dest: /etc/postfix/virtual
+    owner: root
+    group: root
+    mode: "0644"
+  notify: postmap virtual
+
+- name: virtual map exists
+  ansible.builtin.command: postmap /etc/postfix/virtual
+  args:
+    creates: /etc/postfix/virtual.db
+
+- name: reload postfix after renewals
+  ansible.builtin.copy:
+    src: reload-postfix
+    dest: /etc/letsencrypt/renewal-hooks/deploy/reload-postfix
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - postsrsd
+    - postfix
+
+- name: fail2ban jail
+  ansible.builtin.copy:
+    src: jail-postfix.conf
+    dest: /etc/fail2ban/jail.d/postfix.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart fail2ban
+
+- name: firewall for smtp
+  ansible.builtin.command: ufw allow 25/tcp
+  register: ufw_rule
+  changed_when: "'Rule added' in ufw_rule.stdout"

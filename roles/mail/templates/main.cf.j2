@@ -1,0 +1,49 @@
+# forward only. no mailboxes, no submission, no relay for anyone
+compatibility_level = 3.6
+myhostname = srv1.runv.club
+myorigin = runv.club
+mydestination =
+mynetworks = 127.0.0.0/8 [::1]/128
+inet_interfaces = all
+inet_protocols = all
+relayhost =
+biff = no
+append_dot_mydomain = no
+smtpd_banner = $myhostname ESMTP
+disable_vrfy_command = yes
+message_size_limit = 26214400
+
+virtual_alias_domains = runv.club
+virtual_alias_maps = hash:/etc/postfix/virtual
+alias_maps =
+alias_database =
+local_transport = error:no local delivery here
+
+smtpd_helo_required = yes
+smtpd_helo_restrictions = permit_mynetworks, reject_invalid_helo_hostname, reject_non_fqdn_helo_hostname
+smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_recipient_restrictions =
+    permit_mynetworks,
+    reject_non_fqdn_recipient,
+    reject_unknown_reverse_client_hostname,
+    reject_unauth_destination
+smtpd_reject_unlisted_recipient = yes
+
+smtpd_tls_cert_file = /etc/letsencrypt/live/runv.club/fullchain.pem
+smtpd_tls_key_file = /etc/letsencrypt/live/runv.club/privkey.pem
+smtpd_tls_security_level = may
+smtpd_tls_protocols = >=TLSv1.2
+smtpd_tls_loglevel = 1
+smtp_tls_security_level = may
+smtp_tls_CApath = /etc/ssl/certs
+smtp_tls_loglevel = 1
+
+# rewrite the envelope sender so SPF still passes at the other end
+sender_canonical_maps = tcp:127.0.0.1:10001
+sender_canonical_classes = envelope_sender
+recipient_canonical_maps = tcp:127.0.0.1:10002
+recipient_canonical_classes = envelope_recipient, header_recipient
+
+# bots that talk before the greeting get dropped
+postscreen_greet_action = enforce
+postscreen_access_list = permit_mynetworks

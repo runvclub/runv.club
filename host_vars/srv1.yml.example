@@ -5,3 +5,5 @@ monitor_ip: 192.0.2.10
 backup_exclude_extra: []
 # open or closed
 signup_state: closed
+# where admin@runv.club and friends are forwarded
+mail_forward_to: you@example.org

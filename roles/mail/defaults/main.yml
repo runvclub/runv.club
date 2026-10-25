@@ -1,0 +1,8 @@
+# where admin@ and friends end up. set the real address in host_vars
+mail_forward_to: root@localhost
+mail_aliases:
+  - admin
+  - postmaster
+  - abuse
+  - dmarc
+  - root

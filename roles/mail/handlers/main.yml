@@ -1,0 +1,16 @@
+- name: postmap virtual
+  ansible.builtin.command: postmap /etc/postfix/virtual
+  notify: reload postfix
+
+- name: reload postfix
+  ansible.builtin.shell: postfix check && systemctl reload-or-restart postfix
+
+- name: restart postsrsd
+  ansible.builtin.systemd_service:
+    name: postsrsd
+    state: restarted
+
+- name: restart fail2ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    state: restarted
