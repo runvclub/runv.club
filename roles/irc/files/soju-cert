@@ -1,0 +1,6 @@
+#!/bin/sh
+# soju can't read letsencrypt's keys, so it gets its own copy
+set -eu
+install -o root -g soju -m 0640 /etc/letsencrypt/live/runv.club/fullchain.pem /etc/soju/tls/fullchain.pem
+install -o root -g soju -m 0640 /etc/letsencrypt/live/runv.club/privkey.pem /etc/soju/tls/privkey.pem
+systemctl reload soju 2>/dev/null || true

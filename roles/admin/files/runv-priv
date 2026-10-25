@@ -14,6 +14,10 @@ import secrets
 import subprocess
 import sys
 
+sys.path.insert(0, "/usr/local/lib/runv")
+import runvirc  # noqa: E402
+import runvsecret  # noqa: E402
+
 DB = "/var/lib/runv/members.json"
 
 
@@ -37,32 +41,12 @@ def caller():
     die("this only works for runv.club members")
 
 
-def save_for_member(m, fname, text):
-    """Leave a secret in ~/.config/runv, readable only by the member.
-
-    The writing happens as the member, so whatever they put in the way
-    (a symlink, say) can only point at their own files.
-    """
-    script = 'umask 077; d="$HOME/.config/runv"; mkdir -p "$d"; cat > "$d/$1.new" && mv -f "$d/$1.new" "$d/$1"'
-    home = pwd.getpwnam(m["username"]).pw_dir
-    subprocess.run(["runuser", "-u", m["username"], "--", "env", "HOME=" + home,
-                    "sh", "-c", script, "sh", fname],
-                   input=text + "\n", text=True, check=True, capture_output=True)
-    return "~/.config/runv/" + fname
-
-
 def token_irc(m):
-    if not os.path.exists("/usr/bin/sojuctl"):
+    if not runvirc.available():
         die("the irc bouncer isn't set up yet")
-    password = secrets.token_urlsafe(24)
-    sojuctl = ["sojuctl", "-config", "/etc/soju/config"]
-    users = subprocess.run(sojuctl + ["user", "status"], capture_output=True, text=True).stdout
-    verb = "update" if any(l.split()[:1] == [m["username"]] for l in users.splitlines()) else "create"
-    out = subprocess.run(sojuctl + ["user", verb, m["username"], "-password", password],
-                         capture_output=True, text=True)
-    if out.returncode != 0:
-        die("the bouncer said no: " + (out.stderr or out.stdout).strip()[:200])
-    return password, save_for_member(m, "irc-token", password)
+    name = m["username"]
+    password = runvirc.new_password(name) if runvirc.exists(name) else runvirc.create(name)
+    return password, runvsecret.save(name, "irc-token", password)
 
 
 def token_ntfy(m):
@@ -80,7 +64,7 @@ def token_ntfy(m):
     token = next((w for w in (out.stdout + out.stderr).split() if w.startswith("tk_")), None)
     if not token:
         die("ntfy didn't hand out a token")
-    return token, save_for_member(m, "ntfy-token", token)
+    return token, runvsecret.save(name, "ntfy-token", token)
 
 
 def main():

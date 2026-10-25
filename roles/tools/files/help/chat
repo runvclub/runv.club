@@ -1,12 +1,23 @@
-Type `chat` to open weechat in #runv on tilde.chat, the IRC network the
-tilde servers share. The first run sets everything up with your
-username as your nick. After that it's ordinary weechat.
+Type `chat` to talk in #runv on tilde.chat, the IRC network the tilde
+servers share. It opens senpai through our bouncer at irc.runv.club, so
+you stay connected while you're away and catch up on what you missed.
 
-Register your nick so nobody else takes it. Inside weechat:
+The same account works in the browser at https://chat.runv.club and in
+any client that speaks to a bouncer: irc.runv.club, port 6697, TLS, your
+username, and the password in ~/.config/runv/irc-token. `runv token irc`
+makes a new one.
+
+Register your nick on tilde.chat so nobody else takes it:
 
   /msg NickServ REGISTER yourpassword you@example.org
 
-From a browser: https://tilde.chat/gamja/
-Prefer irssi? irc.tilde.chat, port 6697, TLS.
+Other networks (up to 3 in all) are added through BouncerServ:
 
-tilde.chat has its own rules: https://tilde.wiki/Code_of_conduct
+  /msg BouncerServ network create -addr irc.libera.chat
+  /msg BouncerServ help
+
+Every network has its own rules and you're a guest there. If one of them
+complains about you, the bouncer gets switched off for you.
+tilde.chat's rules: https://tilde.wiki/Code_of_conduct
+
+`chat weechat` skips the bouncer and opens weechat straight on tilde.chat.

@@ -11,6 +11,7 @@
     runv-user gemini-sync
     runv-user i2p-sync
     runv-user forgejo NAME      (re)create a member's git account
+    runv-user irc NAME          (re)create a member's bouncer account
 
 Only accounts created by this tool can be touched. Deleted homes go to a
 quarantine dir first and are removed by `purge` after the configured days.
@@ -39,6 +40,8 @@ import urllib.request
 sys.path.insert(0, "/usr/local/lib/runv")
 import runvcheck  # noqa: E402
 import runvmail  # noqa: E402
+import runvirc  # noqa: E402
+import runvsecret  # noqa: E402
 
 CONF = "/etc/runv/runv.conf"
 DB = "/var/lib/runv/members.json"
@@ -370,8 +373,30 @@ def linkding_remove(name):
     linkding(f"User.objects.filter(username={name!r}).delete()")
 
 
+# irc.runv.club. the password lives in ~/.config/runv/irc-token, where
+# `chat` and senpai pick it up
+def irc_add(name):
+    if not runvirc.available():
+        return "no bouncer here"
+    if runvirc.exists(name):
+        return "already there"
+    runvsecret.save(name, "irc-token", runvirc.create(name))
+    return "created"
+
+
+def irc_on(name):
+    if runvirc.available() and runvirc.exists(name):
+        runvsecret.save(name, "irc-token", runvirc.new_password(name))
+
+
+def irc_off(name):
+    if runvirc.available():
+        runvirc.lock(name)
+
+
 def services_off(name):
-    for step in (lambda: forgejo_login(name, False), lambda: linkding_active(name, False)):
+    for step in (lambda: forgejo_login(name, False), lambda: linkding_active(name, False),
+                 lambda: irc_off(name)):
         try:
             step()
         except Exception as e:
@@ -379,7 +404,8 @@ def services_off(name):
 
 
 def services_on(name):
-    for step in (lambda: forgejo_login(name, True), lambda: linkding_active(name, True)):
+    for step in (lambda: forgejo_login(name, True), lambda: linkding_active(name, True),
+                 lambda: irc_on(name)):
         try:
             step()
         except Exception as e:
@@ -408,8 +434,11 @@ first password is in ~/.forgejo-password and you'll be asked to change
 it. Bookmarks are at https://links.runv.club, you log in there with your
 git account.
 
-Type `help` once you're in. Type `chat` to talk to the rest of us in
-#runv on tilde.chat.
+Type `help` once you're in, or `runv` for your dashboard. Type `chat`
+to talk to the rest of us in #runv on tilde.chat. It goes through our
+bouncer, so you won't miss what was said while you were away, and the
+same account works in the browser at https://chat.runv.club (the
+password is in ~/.config/runv/irc-token).
 
 The rules are at https://runv.club/rules
 
@@ -478,6 +507,10 @@ def create(conf, db, name, mail, key, fingerprint):
         forgejo_add(name, mail, key)
     except Exception as e:
         print(f"warning: no git account yet ({e}). run: runv-user forgejo {name}", file=sys.stderr)
+    try:
+        irc_add(name)
+    except Exception as e:
+        print(f"warning: no bouncer account yet ({e}). run: runv-user irc {name}", file=sys.stderr)
     log(f"add {name} uid={uid} key={fingerprint}")
 
     sent = runvmail.send(mail, "Welcome to runv.club", welcome_text(name, find(db, name).get("i2p")))
@@ -584,6 +617,8 @@ def purge_one(m, db, conf):
     except Exception as e:
         die(f"could not remove the git account of {m['username']}: {e}")
     linkding_remove(m["username"])
+    if runvirc.available():
+        runvirc.delete(m["username"])
     db.remove(m)
     log(f"purge {m['username']}")
     print(f"{m['username']} purged")
@@ -616,6 +651,11 @@ def cmd_forgejo(args, conf, db):
     print(f"{m['username']}: {forgejo_add(m['username'], m['email'], key)}")
 
 
+def cmd_irc(args, conf, db):
+    m = member_or_die(db, args.name, "active")
+    print(f"{m['username']}: {irc_add(m['username'])}")
+
+
 def cmd_i2p_sync(args, conf, db):
     if i2p_sync(db):
         save_db(db)
@@ -634,7 +674,7 @@ def main():
     a.add_argument("--key-file")
 
     sub.add_parser("list")
-    for c in ("show", "unsuspend", "delete", "forgejo"):
+    for c in ("show", "unsuspend", "delete", "forgejo", "irc"):
         sub.add_parser(c).add_argument("name")
     s = sub.add_parser("suspend")
     s.add_argument("name")

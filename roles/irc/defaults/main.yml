@@ -1,0 +1,21 @@
+irc_port: 6697
+# soju's websocket, only for nginx in front of gamja
+irc_ws_port: 8090
+irc_max_networks: 3
+# members away this long get their networks disconnected until they log in again
+irc_inactive: 30d
+
+gamja_version: 1.0.0-beta.11
+gamja_url: https://codeberg.org/attachments/30f28cee-4bf1-422b-91d6-3e3e892bfa56
+gamja_sha256: 10c37f254028bbb5b3662c659dec8a099e3ed37b8ec90161e12003b8b8b4c930
+# the release loads these straight from node_modules, versions from its package-lock
+gamja_deps:
+  - name: htm
+    version: 3.1.1
+    sha256: 2425b9bee11409177bcabc7f32e319926fc6690c1701c0b257c88bdff2d5ba90
+  - name: linkifyjs
+    version: 4.2.0
+    sha256: 62945f6d454936006dc291c139546b27c493f486e9d76e3780f796a8f30ba63e
+  - name: preact
+    version: 10.26.4
+    sha256: 3ee2f67884ecaad0652a3bb75d1b6734518dc276f0af653e9fb2d24bfc441c27

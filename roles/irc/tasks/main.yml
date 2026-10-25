@@ -1,0 +1,182 @@
+- name: soju and senpai
+  ansible.builtin.apt:
+    name:
+      - soju
+      - senpai
+    state: present
+    install_recommends: false
+
+- name: tls dir
+  ansible.builtin.file:
+    path: /etc/soju/tls
+    state: directory
+    owner: root
+    group: soju
+    mode: "0750"
+
+- name: cert copy hook
+  ansible.builtin.copy:
+    src: soju-cert
+    dest: /etc/letsencrypt/renewal-hooks/deploy/soju-cert
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: cert for soju
+  ansible.builtin.copy:
+    src: /etc/letsencrypt/live/runv.club/{{ item }}
+    dest: /etc/soju/tls/{{ item }}
+    remote_src: true
+    owner: root
+    group: soju
+    mode: "0640"
+  loop:
+    - fullchain.pem
+    - privkey.pem
+  notify: restart soju
+
+- name: motd
+  ansible.builtin.copy:
+    src: motd
+    dest: /etc/soju/motd
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart soju
+
+- name: config
+  ansible.builtin.template:
+    src: config.j2
+    dest: /etc/soju/config
+    owner: root
+    group: soju
+    mode: "0640"
+  notify: restart soju
+
+- name: unit drop-in dir
+  ansible.builtin.file:
+    path: /etc/systemd/system/soju.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: hardening
+  ansible.builtin.copy:
+    src: hardening.conf
+    dest: /etc/systemd/system/soju.service.d/runv.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart soju
+
+- name: running
+  ansible.builtin.systemd_service:
+    name: soju
+    enabled: true
+    state: started
+
+- name: apply restarts now
+  ansible.builtin.meta: flush_handlers
+
+- name: firewall for the bouncer
+  ansible.builtin.command: ufw allow {{ irc_port }}/tcp
+  register: ufw_rule
+  changed_when: "'Rule added' in ufw_rule.stdout"
+
+# gamja, the web client. no build step, it runs as plain modules
+- name: gamja dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /opt/gamja
+    - /var/cache/runv/gamja
+
+- name: gamja release
+  ansible.builtin.get_url:
+    url: "{{ gamja_url }}"
+    dest: /var/cache/runv/gamja/gamja-{{ gamja_version }}.tar.gz
+    checksum: sha256:{{ gamja_sha256 }}
+    mode: "0644"
+
+- name: gamja deps
+  ansible.builtin.get_url:
+    url: https://registry.npmjs.org/{{ item.name }}/-/{{ item.name }}-{{ item.version }}.tgz
+    dest: /var/cache/runv/gamja/{{ item.name }}-{{ item.version }}.tgz
+    checksum: sha256:{{ item.sha256 }}
+    mode: "0644"
+  loop: "{{ gamja_deps }}"
+
+- name: unpack gamja
+  ansible.builtin.unarchive:
+    src: /var/cache/runv/gamja/gamja-{{ gamja_version }}.tar.gz
+    dest: /opt/gamja
+    remote_src: true
+    owner: root
+    group: root
+    creates: /opt/gamja/gamja-{{ gamja_version }}/main.js
+
+- name: dep dirs
+  ansible.builtin.file:
+    path: /opt/gamja/gamja-{{ gamja_version }}/node_modules/{{ item.name }}
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ gamja_deps }}"
+
+- name: unpack deps
+  ansible.builtin.unarchive:
+    src: /var/cache/runv/gamja/{{ item.name }}-{{ item.version }}.tgz
+    dest: /opt/gamja/gamja-{{ gamja_version }}/node_modules/{{ item.name }}
+    remote_src: true
+    owner: root
+    group: root
+    extra_opts: [--strip-components=1]
+    creates: /opt/gamja/gamja-{{ gamja_version }}/node_modules/{{ item.name }}/package.json
+  loop: "{{ gamja_deps }}"
+
+- name: gamja config
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: /opt/gamja/gamja-{{ gamja_version }}/config.json
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: current gamja
+  ansible.builtin.file:
+    src: /opt/gamja/gamja-{{ gamja_version }}
+    dest: /opt/gamja/current
+    state: link
+
+- name: vhost
+  ansible.builtin.template:
+    src: chat.runv.club.conf.j2
+    dest: /etc/nginx/sites-enabled/chat.runv.club.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: fail2ban filter
+  ansible.builtin.copy:
+    src: filter-soju.conf
+    dest: /etc/fail2ban/filter.d/soju.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart fail2ban
+
+- name: fail2ban jail
+  ansible.builtin.copy:
+    src: jail-soju.conf
+    dest: /etc/fail2ban/jail.d/soju.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart fail2ban

@@ -1,0 +1,14 @@
+hostname irc.runv.club
+title runv.club
+listen ircs://:{{ irc_port }}
+listen ws://localhost:{{ irc_ws_port }}
+listen unix+admin://
+tls /etc/soju/tls/fullchain.pem /etc/soju/tls/privkey.pem
+db sqlite3 /var/lib/soju/main.db
+message-store db
+motd /etc/soju/motd
+accept-proxy-ip localhost
+http-origin https://chat.runv.club
+max-user-networks {{ irc_max_networks }}
+disable-inactive-user {{ irc_inactive }}
+enable-user-on-auth true

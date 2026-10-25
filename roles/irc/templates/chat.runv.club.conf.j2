@@ -1,0 +1,32 @@
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.runv.club;
+
+    ssl_certificate     /etc/letsencrypt/live/runv.club/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/runv.club/privkey.pem;
+    include snippets/runv-headers.conf;
+
+    root /opt/gamja/current;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location ~ /\. {
+        return 404;
+    }
+
+    location = /socket {
+        proxy_pass http://127.0.0.1:{{ irc_ws_port }};
+        proxy_read_timeout 600s;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}

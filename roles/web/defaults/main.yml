@@ -5,3 +5,7 @@ web_cert_names:
   - mail.runv.club
   - git.runv.club
   - links.runv.club
+  - irc.runv.club
+  - chat.runv.club
+  - ntfy.runv.club
+  - feeds.runv.club
