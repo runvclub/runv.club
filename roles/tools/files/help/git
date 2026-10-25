@@ -1,0 +1,12 @@
+You have an account on https://git.runv.club with the same username
+and SSH key as here. Only members can see anything on it.
+
+The first password is in ~/.forgejo-password. Log in on the web, pick a
+new one, then you can delete that file.
+
+Make a repository on the web, then push to it over SSH on port 2222:
+
+  git remote add origin ssh://git@git.runv.club:2222/you/project.git
+  git push -u origin main
+
+Each account gets 1G of space on git. There is no CI here.

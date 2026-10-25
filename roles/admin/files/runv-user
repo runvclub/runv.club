@@ -10,6 +10,7 @@
     runv-user purge [--now NAME]
     runv-user gemini-sync
     runv-user i2p-sync
+    runv-user forgejo NAME      (re)create a member's git account
 
 Only accounts created by this tool can be touched. Deleted homes go to a
 quarantine dir first and are removed by `purge` after the configured days.
@@ -24,6 +25,7 @@ import json
 import os
 import pwd
 import grp
+import secrets
 import hashlib
 import shutil
 import stat
@@ -31,6 +33,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 
 sys.path.insert(0, "/usr/local/lib/runv")
 import runvcheck  # noqa: E402
@@ -44,6 +48,10 @@ SLICE_DIR = "/etc/systemd/system/user-{uid}.slice.d"
 GEMINI_USERS = "/var/gemini/users"
 I2P_TUNNELS = "/etc/i2pd/tunnels.d"
 I2P_KEYS = "/var/lib/i2pd/runv"
+FORGEJO_API = "http://127.0.0.1:3000/api/v1"
+FORGEJO_TOKEN = "/etc/runv/forgejo.token"
+LINKDING_DIR = "/opt/linkding/app"
+LINKDING_ENV = "/etc/runv/linkding.env"
 
 def die(msg):
     print(f"runv-user: {msg}", file=sys.stderr)
@@ -290,6 +298,93 @@ def i2p_note(name, address):
     os.chmod(path, 0o644)
     shutil.chown(path, name, name)
 
+
+# git.runv.club. members get the same name and ssh key as on the shell
+def forgejo(method, path, body=None):
+    try:
+        token = open(FORGEJO_TOKEN).read().strip()
+    except FileNotFoundError:
+        return None
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(FORGEJO_API + path, data=data, method=method, headers={
+        "Authorization": f"token {token}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            raw = r.read()
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise RuntimeError(f"forgejo said {e.code} to {method} {path}: {e.read().decode()[:200]}")
+
+
+def forgejo_add(name, mail, key):
+    if forgejo("GET", f"/users/{name}"):
+        return "already there"
+    password = secrets.token_urlsafe(18)
+    forgejo("POST", "/admin/users", {
+        "username": name, "email": mail, "password": password,
+        "must_change_password": True, "send_notify": False,
+    })
+    forgejo("POST", f"/admin/users/{name}/keys", {"title": "runv", "key": key})
+    path = os.path.join(pwd.getpwnam(name).pw_dir, ".forgejo-password")
+    with open(path, "w") as f:
+        f.write(password + "\n")
+    os.chmod(path, 0o600)
+    shutil.chown(path, name, name)
+    return "created"
+
+
+def forgejo_login(name, allowed):
+    if forgejo("GET", f"/users/{name}"):
+        forgejo("PATCH", f"/admin/users/{name}",
+                {"login_name": name, "source_id": 0, "prohibit_login": not allowed})
+
+
+def forgejo_remove(name):
+    if forgejo("GET", f"/users/{name}"):
+        forgejo("DELETE", f"/admin/users/{name}?purge=true")
+
+
+# links.runv.club. accounts appear on first login through git.runv.club,
+# so here we only switch them off, back on, or delete them
+def linkding(code):
+    if not os.path.exists(LINKDING_ENV):
+        return
+    env = dict(os.environ)
+    with open(LINKDING_ENV) as f:
+        for line in f:
+            if "=" in line:
+                k, v = line.rstrip("\n").split("=", 1)
+                env[k] = v
+    run("runuser", "-u", "linkding", "--", "/opt/linkding/venv/bin/python", "manage.py",
+        "shell", "-c", "from django.contrib.auth.models import User\n" + code,
+        cwd=LINKDING_DIR, env=env, check=False)
+
+
+def linkding_active(name, active):
+    linkding(f"User.objects.filter(username={name!r}).update(is_active={active})")
+
+
+def linkding_remove(name):
+    linkding(f"User.objects.filter(username={name!r}).delete()")
+
+
+def services_off(name):
+    for step in (lambda: forgejo_login(name, False), lambda: linkding_active(name, False)):
+        try:
+            step()
+        except Exception as e:
+            print(f"warning: {e}", file=sys.stderr)
+
+
+def services_on(name):
+    for step in (lambda: forgejo_login(name, True), lambda: linkding_active(name, True)):
+        try:
+            step()
+        except Exception as e:
+            print(f"warning: {e}", file=sys.stderr)
+
 def welcome_text(name, i2p=None):
     i2p_line = f"    http://{i2p}/\n        ~/public_i2p\n" if i2p else ""
     return f"""Hi {name},
@@ -308,6 +403,11 @@ folder under each address to change it:
     gopher://runv.club/1/~{name}
         ~/public_gopher
 {i2p_line}
+Git lives at https://git.runv.club with the same name and key. The
+first password is in ~/.forgejo-password and you'll be asked to change
+it. Bookmarks are at https://links.runv.club, you log in there with your
+git account.
+
 Type `help` once you're in. Type `chat` to talk to the rest of us in
 #runv on tilde.chat.
 
@@ -374,6 +474,10 @@ def create(conf, db, name, mail, key, fingerprint):
     gemini_sync(db)
     if i2p_sync(db):
         save_db(db)
+    try:
+        forgejo_add(name, mail, key)
+    except Exception as e:
+        print(f"warning: no git account yet ({e}). run: runv-user forgejo {name}", file=sys.stderr)
     log(f"add {name} uid={uid} key={fingerprint}")
 
     sent = runvmail.send(mail, "Welcome to runv.club", welcome_text(name, find(db, name).get("i2p")))
@@ -406,6 +510,7 @@ def cmd_suspend(args, conf, db):
     save_db(db)
     gemini_sync(db)
     i2p_sync(db)
+    services_off(m["username"])
     log(f"suspend {m['username']} reason={args.reason or '-'}")
     print(f"{m['username']} suspended")
 
@@ -420,6 +525,7 @@ def cmd_unsuspend(args, conf, db):
     save_db(db)
     gemini_sync(db)
     i2p_sync(db)
+    services_on(m["username"])
     log(f"unsuspend {m['username']}")
     print(f"{m['username']} active again")
 
@@ -435,6 +541,7 @@ def cmd_delete(args, conf, db):
     run("usermod", "--lock", "--expiredate", "1", name)
     stop_sessions(name)
     gemini_unmount(name)
+    services_off(name)
 
     quarantine = conf["delete"]["quarantine"]
     stamp = now().strftime("%Y%m%d-%H%M%S")
@@ -472,6 +579,11 @@ def purge_one(m, db, conf):
         if busy:
             die(f"something is mounted under {path}: {', '.join(busy)}")
         shutil.rmtree(path)
+    try:
+        forgejo_remove(m["username"])
+    except Exception as e:
+        die(f"could not remove the git account of {m['username']}: {e}")
+    linkding_remove(m["username"])
     db.remove(m)
     log(f"purge {m['username']}")
     print(f"{m['username']} purged")
@@ -497,6 +609,13 @@ def cmd_gemini_sync(args, conf, db):
         print(line)
 
 
+def cmd_forgejo(args, conf, db):
+    m = member_or_die(db, args.name, "active")
+    with open(os.path.join(pwd.getpwnam(m["username"]).pw_dir, ".ssh", "authorized_keys")) as f:
+        key = f.readline().strip()
+    print(f"{m['username']}: {forgejo_add(m['username'], m['email'], key)}")
+
+
 def cmd_i2p_sync(args, conf, db):
     if i2p_sync(db):
         save_db(db)
@@ -515,7 +634,7 @@ def main():
     a.add_argument("--key-file")
 
     sub.add_parser("list")
-    for c in ("show", "unsuspend", "delete"):
+    for c in ("show", "unsuspend", "delete", "forgejo"):
         sub.add_parser(c).add_argument("name")
     s = sub.add_parser("suspend")
     s.add_argument("name")

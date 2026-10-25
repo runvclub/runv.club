@@ -15,9 +15,20 @@ note() { echo "$(date -u +%FT%TZ) $*" >> /var/log/runv/backup.log; }
 case "${1:-}" in
 full)
     export RESTIC_REPOSITORY="$(repo full)"
+    # live sqlite files can be mid-write, back up a consistent copy instead
+    mkdir -p /var/backups/runv-db
+    for db in /var/lib/forgejo/data/forgejo.db /var/lib/linkding/db.sqlite3; do
+        [ -f "$db" ] || continue
+        python3 -I -c 'import sqlite3, sys; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect(sys.argv[2]))' \
+            "$db" "/var/backups/runv-db/$(basename "$db")"
+    done
+    paths="/home /root /etc /opt /var/lib/runv /var/backups/runv-db"
+    for p in /var/lib/forgejo /var/lib/linkding /var/lib/runv-join; do
+        [ -d "$p" ] && paths="$paths $p"
+    done
+    # shellcheck disable=SC2086
     restic backup -q --tag full --one-file-system --exclude-caches \
-        --exclude-file /etc/runv/backup-exclude \
-        /home /root /etc /opt /var/lib/runv
+        --exclude-file /etc/runv/backup-exclude $paths
     restic forget -q --tag full --keep-last 6 --prune
     restic check -q --read-data-subset=5%
 

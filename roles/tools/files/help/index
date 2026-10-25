@@ -5,6 +5,8 @@ help TOPIC, where TOPIC is one of:
   gopher   your hole at gopher://runv.club/1/~you
   i2p      your eepsite on the I2P network
   chat     #runv on tilde.chat
+  git      your repositories at https://git.runv.club
+  links    your bookmarks at https://links.runv.club
   keys     adding or replacing SSH keys
   quota    disk space and other limits
   backups  what is backed up and what isn't
