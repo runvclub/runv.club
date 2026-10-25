@@ -16,7 +16,10 @@ case "${1:-}" in
 full)
     export RESTIC_REPOSITORY="$(repo full)"
     # live sqlite files can be mid-write, back up a consistent copy instead
+    # the copies hold password hashes and tokens: root only
+    umask 077
     mkdir -p /var/backups/runv-db
+    chmod 700 /var/backups/runv-db
     for db in /var/lib/forgejo/data/forgejo.db /var/lib/linkding/db.sqlite3 /var/lib/soju/main.db /var/lib/ntfy/user.db; do
         [ -f "$db" ] || continue
         python3 -I -c 'import sqlite3, sys; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect(sys.argv[2]))' \
