@@ -40,6 +40,77 @@
     mode: "0644"
   notify: reload postfix
 
+# runv-user fills these in as members come and go. they only need to exist
+- name: member lists postfix reads
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  loop:
+    - /etc/postfix/runv-submitters
+    - /etc/postfix/runv-suspended.regexp
+
+- name: list members dir
+  ansible.builtin.file:
+    path: /var/lib/runv-lists
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: who members may send as
+  ansible.builtin.copy:
+    src: login-senders.regexp
+    dest: /etc/postfix/login-senders.regexp
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload postfix
+
+- name: who outside may write to
+  ansible.builtin.template:
+    src: inbound-recipients.regexp.j2
+    dest: /etc/postfix/inbound-recipients.regexp
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload postfix
+
+# it holds the admin's own address, like the forwards
+- name: transport
+  ansible.builtin.template:
+    src: transport.j2
+    dest: /etc/postfix/transport
+    owner: root
+    group: postfix
+    mode: "0640"
+  notify: postmap transport
+
+- name: transport map exists
+  ansible.builtin.shell: |
+    postmap /etc/postfix/transport
+    chgrp postfix /etc/postfix/transport.db
+    chmod 640 /etc/postfix/transport.db
+  args:
+    creates: /etc/postfix/transport.db
+
+- name: lists
+  ansible.builtin.template:
+    src: runv-lists.j2
+    dest: /etc/postfix/runv-lists
+    owner: root
+    group: root
+    mode: "0644"
+  notify: postalias lists
+
+- name: lists map exists
+  ansible.builtin.command: postalias /etc/postfix/runv-lists
+  args:
+    creates: /etc/postfix/runv-lists.db
+
 - name: forwards
   ansible.builtin.template:
     src: virtual.j2
@@ -92,3 +163,18 @@
   ansible.builtin.command: ufw allow 25/tcp
   register: ufw_rule
   changed_when: "'Rule added' in ufw_rule.stdout"
+
+- name: mail clients for members
+  ansible.builtin.apt:
+    name:
+      - s-nail
+      - mutt
+      - alpine
+    state: present
+    install_recommends: false
+
+# who may send, who's suspended and who is on which list
+- name: member mail settings
+  ansible.builtin.command: /usr/local/sbin/runv-user mail-sync
+  register: mail_sync
+  changed_when: "'changed' in mail_sync.stdout"

@@ -136,12 +136,26 @@ kept a year. No address is stored.
 a user whose only topics start with their name. `feeds.runv.club` is
 miniflux on postgres, with login through Forgejo only.
 
-## Mail in
+## Mail
 
-The box only forwards. `admin@`, `postmaster@`, `abuse@` and `dmarc@`
-go to `mail_forward_to` in `host_vars`, with SRS so SPF still passes on
-the other end. Anything else is refused at RCPT and nothing is relayed.
-There are no mailboxes here.
+From outside, the box only forwards. `admin@`, `postmaster@`, `abuse@`,
+`dmarc@` and `root@` go to `mail_forward_to` in `host_vars`, with SRS so
+SPF still passes on the other end. Anything else is refused at RCPT and
+nothing is relayed.
+
+Inside, members mail each other: `runv.club` is a local domain, delivered
+to `/var/mail` (50MB each). Nothing leaves: `default_transport` is an
+error, and `transport_maps` lets out only the exact `mail_forward_to`
+address. Only root and active members may use sendmail, each under their
+own name (`local_login_sender_maps`). `runv-user` keeps the list of
+senders and the suspended members (whose mail bounces) in step with the
+member list, and builds the mailing lists (`mail_lists`, sent to
+`list+NAME`) from each member's `~/.lists`. A deleted member's mailbox
+goes to the quarantine with their home.
+
+Bounces for forwarded mail no longer go back to the original sender
+outside: SRS addresses are refused at RCPT, since nothing could take the
+bounce out anyway.
 
 ## git.runv.club and links.runv.club
 

@@ -1,0 +1,5 @@
+# list+NAME goes to whoever has NAME in their ~/.lists. runv-user writes
+# the include files
+{% for l in mail_lists %}
+list+{{ l }}:    :include:/var/lib/runv-lists/{{ l }}
+{% endfor %}

@@ -1,0 +1,4 @@
+# the one address mail may leave for: where the admin forwards go
+{% if mail_forward_to.split('@')[1] not in ['localhost', 'runv.club', 'srv1.runv.club'] %}
+{{ mail_forward_to | lower }}    smtp:
+{% endif %}

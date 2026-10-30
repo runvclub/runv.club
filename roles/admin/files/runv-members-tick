@@ -26,6 +26,9 @@ for home in /home/*; do
     fi
 done
 
+# who is on which mailing list, from everyone's ~/.lists
+/usr/local/sbin/runv-user mail-sync >/dev/null 2>&1 || true
+
 # tunnel dirs of people who are gone
 for d in "$apps"/*; do
     [ -d "$d" ] || continue

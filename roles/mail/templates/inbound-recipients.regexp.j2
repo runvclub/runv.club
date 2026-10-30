@@ -1,0 +1,3 @@
+# checked for mail from outside (smtpd) only. members don't exist out there
+/^({{ mail_aliases | join('|') }})@runv\.club$/    DUNNO
+/./    REJECT 5.1.1 no such mailbox here

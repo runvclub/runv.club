@@ -21,7 +21,7 @@ RESERVED = {
     "mail", "ftp", "ssh", "git", "irc", "news", "noreply", "nobody", "operator",
     "security", "system", "daemon", "members", "runv", "runvclub", "join",
     "signup", "register", "public", "test", "guest", "anonymous", "user",
-    "farewell", "status", "links", "about",
+    "farewell", "status", "links", "about", "list", "ring", "square", "guestbook",
 }
 
 

@@ -1,0 +1,2 @@
+# a member sends as themselves and nobody else
+/^([a-z][a-z0-9_]{1,15})$/    $1, $1@runv.club

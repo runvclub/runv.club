@@ -1,3 +1,4 @@
+# bare names: they match on every domain we deliver for
 {% for a in mail_aliases %}
-{{ a }}@runv.club    {{ mail_forward_to }}
+{{ a }}    {{ mail_forward_to }}
 {% endfor %}

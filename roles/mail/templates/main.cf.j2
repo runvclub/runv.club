@@ -1,12 +1,19 @@
-# forward only. no mailboxes, no submission, no relay for anyone
+# two jobs. from outside: admin@ and friends, forwarded to the admin, and
+# nothing else. inside: members mail each other, and nothing they send
+# leaves the box. no submission, no relay for anyone
 compatibility_level = 3.6
 myhostname = srv1.runv.club
 myorigin = runv.club
-mydestination =
+mydestination = runv.club, $myhostname, localhost
 # members share this box, so localhost gets no favours: it can only reach
-# our own aliases, like anyone else, and only root may hand mail to sendmail
+# our own aliases, like anyone else
 mynetworks = 127.0.0.1/32 [::1]/128
-authorized_submit_users = root
+# who may hand mail to sendmail: root and active members (runv-user keeps
+# the list), each only under their own name
+authorized_submit_users = root, /etc/postfix/runv-submitters
+local_login_sender_maps = inline:{ { root = * }, { postfix = * } }, regexp:/etc/postfix/login-senders.regexp
+authorized_mailq_users = root
+authorized_flush_users = root
 inet_interfaces = all
 inet_protocols = all
 relayhost =
@@ -16,11 +23,24 @@ smtpd_banner = $myhostname ESMTP
 disable_vrfy_command = yes
 message_size_limit = 26214400
 
-virtual_alias_domains = runv.club
+virtual_alias_domains =
 virtual_alias_maps = hash:/etc/postfix/virtual
-alias_maps =
-alias_database =
-local_transport = error:no local delivery here
+# the internal mailing lists, list+NAME
+alias_maps = hash:/etc/postfix/runv-lists
+alias_database = hash:/etc/postfix/runv-lists
+local_transport = local:$myhostname
+mail_spool_directory = /var/mail
+home_mailbox =
+mailbox_command =
+mailbox_size_limit = 52428800
+# from outside nobody lives here but the forwards
+local_recipient_maps = $virtual_alias_maps
+
+# nothing goes out but the forwards to the admin. anything else, whatever
+# the address and however it got rewritten, bounces back here
+default_transport = error:5.7.1 runv.club mail stays on runv.club
+relay_transport = error:5.7.1 runv.club mail stays on runv.club
+transport_maps = hash:/etc/postfix/transport, regexp:/etc/postfix/runv-suspended.regexp
 
 smtpd_helo_required = yes
 smtpd_helo_restrictions = permit_mynetworks, reject_invalid_helo_hostname, reject_non_fqdn_helo_hostname
@@ -28,7 +48,8 @@ smtpd_relay_restrictions = reject_unauth_destination
 smtpd_recipient_restrictions =
     reject_non_fqdn_recipient,
     reject_unknown_reverse_client_hostname,
-    reject_unauth_destination
+    reject_unauth_destination,
+    check_recipient_access regexp:/etc/postfix/inbound-recipients.regexp
 smtpd_reject_unlisted_recipient = yes
 
 smtpd_tls_cert_file = /etc/letsencrypt/live/runv.club/fullchain.pem

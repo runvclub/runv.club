@@ -6,3 +6,7 @@ mail_aliases:
   - abuse
   - dmarc
   - root
+# internal mailing lists, list+NAME@runv.club, members only
+mail_lists:
+  - general
+  - meta

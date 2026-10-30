@@ -1,0 +1,14 @@
+You have a mailbox here, for mail between members. It never leaves
+runv.club and nothing from outside gets in.
+
+  echo "lunch?" | mail -s hi alice      send
+  mail                                  read (or mutt, or alpine)
+
+There are mailing lists for members. To join one, add its name to
+~/.lists, one per line, and you're on it within a few minutes:
+
+  echo general >> ~/.lists
+  mail -s "hello all" list+general < note.txt
+
+Lists: general, meta. Leave by taking the name out of ~/.lists.
+Your mailbox holds up to 50MB. If you're suspended, mail to you bounces.
