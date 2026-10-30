@@ -7,7 +7,7 @@ backup_exclude_extra: []
 signup_state: closed
 # where admin@runv.club and friends are forwarded
 mail_forward_to: you@example.org
-# monthly costs for /about. leave empty and the page stays off
+# monthly costs for /about. empty means it just says the admin pays
 about_costs:
   - {what: "the server", cost: "€00 a month"}
 about_total: "€00"

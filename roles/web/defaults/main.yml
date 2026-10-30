@@ -10,8 +10,8 @@ web_cert_names:
   - ntfy.runv.club
   - feeds.runv.club
 
-# what the server costs, for /about. the page and its link on the home page
-# stay off until this is filled in, like so:
+# what the server costs, for /about. while this is empty the page only says
+# the admin pays for everything. to list the numbers:
 #   about_costs:
 #     - {what: "the server, a Contabo VPS in France", cost: "€00 a month"}
 #     - {what: "the domain", cost: "€00 a year"}
