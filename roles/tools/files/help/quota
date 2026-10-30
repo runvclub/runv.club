@@ -1,5 +1,5 @@
-Every account gets 2G of disk (with a little room over that for a
-while), 1G of RAM, 200 processes and one CPU.
+Every account gets 2G of disk and 200,000 files (with a little room
+over both for a while), 1G of RAM, 200 processes and one CPU.
 
   quota -s      disk used and the limit
   du -sh ~/*    what's taking the space
