@@ -65,7 +65,7 @@ sudo. It only ever acts on whoever called it and takes no free arguments.
   web, Gemini and Gopher. A timer rebuilds it as the member, every 3
   minutes, when something changed. `runv-planet` collects everyone's
   posts at `/planet` and on the home page, and writes `/tilde.json`.
-- `paste`: text from stdin to `~/public_html/p`, with an expiry.
+- `pb`: text from stdin to `~/public_html/p`, with an expiry.
 - `tw`: twtxt in `~/public_html/twtxt.txt`, with a timeline of all members.
 - `board`: a forum in the terminal. Posts are written by `runv-priv`
   into `/var/lib/runv-board`, so nobody can touch other people's posts.

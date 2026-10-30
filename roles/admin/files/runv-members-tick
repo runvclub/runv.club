@@ -22,7 +22,7 @@ for home in /home/*; do
         fi
     fi
     if [ -f "$home/public_html/p/.expire" ]; then
-        runuser -u "$name" -- env HOME="$home" timeout 30 paste --clean >/dev/null 2>&1 || true
+        runuser -u "$name" -- env HOME="$home" timeout 30 pb --clean >/dev/null 2>&1 || true
     fi
 done
 

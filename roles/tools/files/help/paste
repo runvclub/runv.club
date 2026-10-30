@@ -1,14 +1,14 @@
 Share text from the shell:
 
-  git diff | paste
-  paste notes.txt --expire 7d
-  paste --name fix.patch < fix.patch
+  git diff | pb
+  pb notes.txt --expire 7d
+  pb --name fix.patch < fix.patch
 
 It prints the address, like https://runv.club/~you/p/abc12.txt.
 Pastes go away after 30 days unless you pick --expire 1h, 1d, 7d or
 never. Up to 1MB each.
 
-  paste --list       what you have and when it expires
-  paste --rm NAME    remove one now
+  pb --list       what you have and when it expires
+  pb --rm NAME    remove one now
 
 Pastes are public, anyone with the link can read them.

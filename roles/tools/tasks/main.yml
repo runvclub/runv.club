@@ -55,9 +55,15 @@
   loop:
     - runv
     - blog
-    - paste
+    - pb
     - tw
     - board
+
+# pb used to be installed as paste, which hid coreutils' paste
+- name: old paste command
+  ansible.builtin.file:
+    path: /usr/local/bin/paste
+    state: absent
 
 - name: help topics
   ansible.builtin.copy:

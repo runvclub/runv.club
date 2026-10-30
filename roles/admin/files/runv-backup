@@ -29,7 +29,7 @@ full)
         runuser -u postgres -- pg_dump -Fc miniflux > /var/backups/runv-db/miniflux.pgdump
     fi
     paths="/home /root /etc /opt /var/lib/runv /var/backups/runv-db"
-    for p in /var/lib/forgejo /var/lib/linkding /var/lib/soju /var/lib/runv-join; do
+    for p in /var/lib/forgejo /var/lib/linkding /var/lib/soju /var/lib/runv-join /var/lib/runv-board; do
         [ -d "$p" ] && paths="$paths $p"
     done
     # shellcheck disable=SC2086

@@ -8,7 +8,7 @@ help TOPIC, where TOPIC is one of:
   git      your repositories at https://git.runv.club
   links    your bookmarks at https://links.runv.club
   blog     markdown in ~/blog, on web, gemini and gopher
-  paste    share text with a link
+  paste    share text with a link: pb
   apps     your own app or tunnel at https://you.tun.runv.club
   twtxt    tw "hello", a microblog in a text file
   board    the members forum, in the terminal

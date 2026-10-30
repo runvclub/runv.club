@@ -233,7 +233,7 @@ def tip(user):
         "lost? type " + paint("help", bold=True),
         "your dashboard: type " + paint("runv", bold=True),
         "blog: put markdown in ~/blog, it shows up everywhere",
-        "share text: git diff | paste",
+        "share text: git diff | pb",
         "your own address: https://%s.tun.runv.club (help apps)" % user,
         "tell the world what you're up to: tw \"hello\"",
         "the members forum: type " + paint("board", bold=True),

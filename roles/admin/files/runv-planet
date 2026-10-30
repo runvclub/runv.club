@@ -6,6 +6,7 @@ import html
 import json
 import os
 import pwd
+import stat
 import xml.etree.ElementTree as ET
 
 MEMBERS = "/var/lib/runv/members.json"
@@ -25,12 +26,14 @@ footer { margin-top: 3rem; font-size: 1rem; }"""
 def feed_of(name, uid):
     path = os.path.join(pwd.getpwnam(name).pw_dir, "public_html", "blog", "atom.xml")
     try:
-        # a member's feed must be a real file of theirs, not a link to something else
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        # a member's feed must be a real file of theirs, not a link to something
+        # else, and not a fifo that would leave us waiting forever
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
         return []
     with os.fdopen(fd, "rb") as f:
-        if os.fstat(f.fileno()).st_uid != uid or os.fstat(f.fileno()).st_size > 512 * 1024:
+        st = os.fstat(f.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_size > 512 * 1024:
             return []
         try:
             root = ET.fromstring(f.read())

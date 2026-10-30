@@ -260,7 +260,7 @@ def view_pastes():
     pastes = sorted(files_in(os.path.join(HOME, "public_html", "p")), key=os.path.getmtime, reverse=True)
     rows = [(os.path.basename(p)[:32], day(os.path.getmtime(p))) for p in pastes[:15]]
     return [("pastes", rows or ["no pastes yet"]),
-            ("how", ["git diff | paste", "paste notes.txt --expire 7d"])]
+            ("how", ["git diff | pb", "pb notes.txt --expire 7d"])]
 
 
 def view_apps():
