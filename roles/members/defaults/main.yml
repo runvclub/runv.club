@@ -5,4 +5,7 @@ member_tasks: 200
 member_cpu: 100%
 member_quota_soft: 2097152
 member_quota_hard: 2621440
+# files, so nobody fills the disk with empty ones
+member_inodes_soft: 200000
+member_inodes_hard: 250000
 quarantine_days: 14

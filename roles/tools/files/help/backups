@@ -2,6 +2,8 @@ The whole server is backed up every 15 days, encrypted, off the
 machine. That is for rebuilding the server if something goes badly
 wrong. It is not a way to get back a file you deleted yesterday.
 
+/srv/square isn't backed up at all.
+
 Keep your own copy of anything you care about. From your computer:
 
   rsync -av you@runv.club:public_html/ ~/runv-backup/

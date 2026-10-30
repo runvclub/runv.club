@@ -124,6 +124,50 @@ def exists_on_system(name):
     return False
 
 
+def set_quota(name, conf):
+    q = conf["limits"]
+    run("setquota", "-u", name, q["quota_soft"], q["quota_hard"],
+        q.get("inodes_soft", "0"), q.get("inodes_hard", "0"), "/")
+
+
+SHARED = ("/srv/square", "/var/tmp", "/tmp")
+
+
+def evict(uid, dest):
+    """uids get reused, so whatever a deleted member left in the shared
+    dirs goes to their quarantine, or the next member would inherit it and
+    have it count on their quota. Directories of theirs that still hold
+    other people's files stay, handed to root."""
+    for top in SHARED:
+        if not os.path.isdir(top):
+            continue
+        keep = os.path.join(dest, "." + top.strip("/").replace("/", "-"))
+        for root, dirs, files, fd in os.fwalk(top, topdown=False, follow_symlinks=False):
+            rel = os.path.relpath(root, top)
+            for n in files:
+                try:
+                    st = os.stat(n, dir_fd=fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if st.st_uid != uid:
+                    continue
+                target = os.path.normpath(os.path.join(keep, rel, n))
+                os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+                os.rename(n, target, src_dir_fd=fd)
+            for n in dirs:
+                try:
+                    st = os.stat(n, dir_fd=fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if st.st_uid != uid or not stat.S_ISDIR(st.st_mode):
+                    continue
+                try:
+                    os.rmdir(n, dir_fd=fd)
+                except OSError:
+                    os.chown(n, 0, 0, dir_fd=fd, follow_symlinks=False)
+                    os.chmod(n, 0o1777, dir_fd=fd, follow_symlinks=False)
+
+
 def next_uid(start):
     used = {p.pw_uid for p in pwd.getpwall()} | {g.gr_gid for g in grp.getgrall()}
     uid = start
@@ -511,8 +555,7 @@ def create(conf, db, name, mail, key, fingerprint):
         run("chown", "-R", f"{name}:{name}", ssh)
 
         write_slice(uid, conf["limits"])
-        q = conf["limits"]
-        run("setquota", "-u", name, q["quota_soft"], q["quota_hard"], "0", "0", "/")
+        set_quota(name, conf)
     except Exception:
         # half an account is worse than none, the home is brand new so -r is fine
         run("userdel", "--remove", name, check=False)
@@ -619,6 +662,7 @@ def cmd_delete(args, conf, db):
     run("loginctl", "disable-linger", name, check=False)
     run("setquota", "-u", name, "0", "0", "0", "0", "/", check=False)
     run("crontab", "-r", "-u", name, check=False)
+    evict(m["uid"], dest)
     run("userdel", name)
     drop_slice(m["uid"])
     for spool in (f"/var/mail/{name}", f"/var/spool/mail/{name}"):
@@ -691,6 +735,20 @@ def cmd_irc(args, conf, db):
     print(f"{m['username']}: {irc_add(m['username'])}")
 
 
+def cmd_quota_sync(args, conf, db):
+    """Every member's quota as runv.conf says, for when the limits change."""
+    import csv
+    q = conf["limits"]
+    want = [q["quota_soft"], q["quota_hard"], q.get("inodes_soft", "0"), q.get("inodes_hard", "0")]
+    out = run("repquota", "-u", "-O", "csv", "/").stdout.splitlines()
+    have = {r["User"]: [r["BlockSoftLimit"], r["BlockHardLimit"], r["FileSoftLimit"], r["FileHardLimit"]]
+            for r in csv.DictReader(out)}
+    for m in db:
+        if m["status"] in ("active", "suspended") and have.get(m["username"]) != want:
+            set_quota(m["username"], conf)
+            print(f"changed {m['username']}")
+
+
 def cmd_i2p_sync(args, conf, db):
     if i2p_sync(db):
         save_db(db)
@@ -716,6 +774,7 @@ def main():
     s.add_argument("--reason")
     sub.add_parser("gemini-sync")
     sub.add_parser("i2p-sync")
+    sub.add_parser("quota-sync")
     pu = sub.add_parser("purge")
     pu.add_argument("--now", metavar="NAME")
 

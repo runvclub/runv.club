@@ -22,9 +22,18 @@ until `/etc/runv/mail.env` exists. There is an example next to it.
     sudo runv-user delete NAME
     sudo runv-user list
 
-Each member gets 1G of RAM, 200 processes, one CPU and 2G of disk.
+Each member gets 1G of RAM, 200 processes, one CPU, 2G of disk and
+200k files. `runv-user quota-sync` brings existing members in line when
+the limits change (ansible runs it).
 Deleted homes sit in `/var/lib/runv/deleted` for 14 days before they
 are gone for good.
+Whatever they left in `/srv/square`, `/tmp` and `/var/tmp` goes with
+them, since uids get reused.
+
+`/srv/square` is the shared directory: mode 3777, so anyone writes and
+nobody touches other people's files, and the kernel's
+`protected_*` settings cover links and fifos left there. It counts on
+quota and isn't backed up.
 
 ## Web, Gemini and Gopher
 

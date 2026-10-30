@@ -144,6 +144,12 @@
     - runv-planet.timer
     - runv-members-tick.timer
 
+# when the limits in runv.conf change, members who already exist get them too
+- name: quotas match runv.conf
+  ansible.builtin.command: /usr/local/sbin/runv-user quota-sync
+  register: quota_sync
+  changed_when: "'changed' in quota_sync.stdout"
+
 - name: gemini mounts at boot
   ansible.builtin.systemd_service:
     name: runv-gemini-sync.service

@@ -5,6 +5,7 @@ under /var/log/runv/weekly/."""
 import datetime as dt
 import json
 import os
+import pwd
 import shutil
 import socket
 import subprocess
@@ -43,6 +44,26 @@ def recent_alerts():
     return [l for l in lines if l[:25] >= week_ago[:25]]
 
 
+def square():
+    """The five biggest users of /srv/square, by owner."""
+    sizes = {}
+    for root, dirs, files in os.walk("/srv/square"):
+        for n in files:
+            try:
+                st = os.lstat(os.path.join(root, n))
+            except OSError:
+                continue
+            sizes[st.st_uid] = sizes.get(st.st_uid, 0) + st.st_blocks * 512
+    top = sorted(sizes.items(), key=lambda x: -x[1])[:5]
+
+    def who(uid):
+        try:
+            return pwd.getpwuid(uid).pw_name
+        except KeyError:
+            return str(uid)
+    return ", ".join(f"{who(u)} {s // 2**20} MiB" for u, s in top) or "empty"
+
+
 def main():
     today = dt.date.today().isoformat()
     host = socket.gethostname()
@@ -64,6 +85,7 @@ def main():
         "",
         "members:  " + (", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "none"),
         "new:      " + (", ".join(new) or "none"),
+        "square:   " + square(),
         "",
         "backups:",
         sh("/usr/local/sbin/runv-backup", "status"),

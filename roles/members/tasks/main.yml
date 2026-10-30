@@ -54,6 +54,25 @@
     mode: u=rwX,go=rX
     directory_mode: "0755"
 
+# like /town/square: everyone writes, nobody touches what isn't theirs.
+# it has to be world writable for the kernel's symlink and fifo protections
+# to cover it, and only members and admins have a shell anyway
+- name: the square
+  ansible.builtin.file:
+    path: /srv/square
+    state: directory
+    owner: root
+    group: members
+    mode: "3777"
+
+- name: square readme
+  ansible.builtin.copy:
+    src: square-README
+    dest: /srv/square/README
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: pam limits fallback
   ansible.builtin.copy:
     src: limits.conf

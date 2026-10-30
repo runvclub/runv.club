@@ -13,6 +13,7 @@ help TOPIC, where TOPIC is one of:
   apps     your own app or tunnel at https://you.tun.runv.club
   twtxt    tw "hello", a microblog in a text file
   board    the members forum, in the terminal
+  square   /srv/square, a directory everyone can write to
   finger   ~/.plan, for finger you@runv.club
   write    a message on someone's terminal
   code     the languages installed here

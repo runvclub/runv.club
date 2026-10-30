@@ -1,0 +1,13 @@
+/srv/square is a directory every member can write to. Notes, scripts,
+a story written by three people, whatever you like:
+
+  echo "hello from $USER" > /srv/square/hello-$USER.txt
+
+Only you can delete or rename what's yours there. For a project with
+other people, make a directory everyone in it can add to:
+
+  mkdir /srv/square/zine && chmod g+w,+t /srv/square/zine
+
+Files in it get the members group, so g+w lets others add theirs, and
++t keeps anyone from deleting someone else's. It all counts toward your
+quota and isn't backed up. Read /srv/square/README.
