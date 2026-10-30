@@ -72,6 +72,11 @@ sudo. It only ever acts on whoever called it and takes no free arguments.
 - `board`: a forum in the terminal. Posts are written by `runv-priv`
   into `/var/lib/runv-board`, so nobody can touch other people's posts.
 - finger on port 79 shows `~/.plan` and who is on.
+- `write NAME` and `mesg`: Debian 13 dropped both, and utmp with them.
+  These are ours. `write` goes through `runv-priv`, which finds the ptys
+  the target owns and writes to the most recently used one that has the
+  group write bit (`mesg y`), with control characters stripped and at
+  most five messages a minute.
 
 ## IRC bouncer
 

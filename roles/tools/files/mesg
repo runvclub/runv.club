@@ -1,0 +1,11 @@
+#!/bin/sh
+# mesg [y|n]: let other members write to your terminal, or not.
+# Debian dropped the real one, this does the same: the group write bit
+t=$(tty) || { echo "mesg: not a terminal" >&2; exit 2; }
+case "$1" in
+"")
+    if [ -n "$(find "$t" -perm -g=w)" ]; then echo "is y"; else echo "is n"; exit 1; fi ;;
+y) chmod g+w "$t" ;;
+n) chmod g-w "$t" ;;
+*) echo "usage: mesg [y|n]" >&2; exit 2 ;;
+esac

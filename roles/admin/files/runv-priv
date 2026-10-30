@@ -7,11 +7,15 @@
 #   runv-priv token irc     new password for the irc bouncer
 #   runv-priv token ntfy    new token for ntfy.runv.club
 #   runv-priv board new|reply N   post to the board, text on stdin
+#   runv-priv write NAME    a message to another member's terminal, on
+#                           stdin. NAME must be an active member
 import argparse
 import json
 import os
 import pwd
+import re
 import secrets
+import stat
 import subprocess
 import sys
 
@@ -107,6 +111,77 @@ def board(m, action, thread):
     print(f"posted. board read {thread}")
 
 
+def strip_controls(line):
+    # nothing that a terminal would act on: no escapes, no bidi tricks
+    return "".join(c for c in line if c == "\t" or (c.isprintable() and not "\u202a" <= c <= "\u202e"
+                                                    and not "\u2066" <= c <= "\u2069"))
+
+
+def write_to(m, to):
+    """Debian dropped write(1) and utmp, so this is ours. The target's
+    terminals are the ptys they own, and mesg y is the group write bit on
+    them, like it always was. The most recently used one gets the message."""
+    import time
+    sender = m["username"]
+    if not re.fullmatch(r"[a-z][a-z0-9_]{1,15}", to or ""):
+        die("write to whom?")
+    with open(DB) as f:
+        target = next((x for x in json.load(f) if x["username"] == to and x["status"] == "active"), None)
+    if not target:
+        die(f"{to} isn't a runv.club member")
+    ttys, muted = [], False
+    for e in os.listdir("/dev/pts"):
+        if not e.isdigit():
+            continue
+        try:
+            st = os.stat(os.path.join("/dev/pts", e))
+        except OSError:
+            continue
+        if not stat.S_ISCHR(st.st_mode) or st.st_uid != target["uid"]:
+            continue
+        if st.st_mode & stat.S_IWGRP:
+            ttys.append((st.st_atime, e, st.st_rdev))
+        else:
+            muted = True
+    if not ttys:
+        die(f"{to} has messages turned off" if muted else f"{to} isn't logged in")
+
+    # five messages a minute is plenty for a person
+    os.makedirs("/run/runv-write", mode=0o700, exist_ok=True)
+    log, now = os.path.join("/run/runv-write", sender), time.time()
+    try:
+        with open(log) as f:
+            recent = [float(t) for t in f.read().split() if now - float(t) < 60]
+    except (OSError, ValueError):
+        recent = []
+    if len(recent) >= 5:
+        die("slow down, try again in a minute")
+    with open(log, "w") as f:
+        f.write(" ".join(str(t) for t in recent + [now]))
+
+    text = sys.stdin.buffer.read(4000).decode("utf-8", "replace")
+    lines = [strip_controls(l)[:300] for l in text.replace("\r", "").split("\n")]
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if not lines:
+        die("empty message")
+    lines = lines[:20]
+
+    _, pts, rdev = max(ttys)
+    path = os.path.join("/dev/pts", pts)
+    fd = os.open(path, os.O_WRONLY | os.O_NOCTTY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        st = os.fstat(fd)
+        if st.st_rdev != rdev or st.st_uid != target["uid"] or not st.st_mode & stat.S_IWGRP:
+            die(f"{to} isn't logged in")
+        head = f"Message from {sender}@runv.club at {time.strftime('%H:%M')} ..."
+        os.write(fd, ("\n\a" + head + "\n" + "\n".join(lines) + "\nEOF\n").encode())
+    except BlockingIOError:
+        die(f"{to}'s terminal isn't taking anything right now")
+    finally:
+        os.close(fd)
+
+
 def main():
     if os.geteuid() != 0:
         die("run this through runv")
@@ -118,9 +193,14 @@ def main():
     b = sub.add_parser("board")
     b.add_argument("action", choices=["new", "reply"])
     b.add_argument("thread", nargs="?", type=int)
+    w = sub.add_parser("write")
+    w.add_argument("to")
     args = p.parse_args()
 
     m = caller()
+    if args.cmd == "write":
+        write_to(m, args.to)
+        return
     if args.cmd == "board":
         if args.action == "reply" and not args.thread:
             die("reply to which thread?")

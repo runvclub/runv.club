@@ -1,0 +1,13 @@
+Send a message straight to someone's terminal, if they're logged in:
+
+  write alice hello, want to try the board later?
+  write alice              then type, and ctrl-d to send
+
+`finger @runv.club` shows who is on. If messages pop up while you're
+working and you'd rather they didn't:
+
+  mesg n      nobody can write to you
+  mesg y      back on
+  mesg        tells you which one it is
+
+talk isn't here: Debian dropped it. For a real conversation, `chat`.

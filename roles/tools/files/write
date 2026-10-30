@@ -1,0 +1,15 @@
+#!/bin/sh
+# write NAME [message]: a message on another member's terminal. without a
+# message on the command line it reads one from stdin, ctrl-d to send
+if [ $# -lt 1 ]; then
+    echo "usage: write NAME [message]" >&2
+    exit 2
+fi
+to=$1
+shift
+if [ $# -gt 0 ]; then
+    printf '%s\n' "$*" | sudo -n /usr/local/sbin/runv-priv write "$to"
+else
+    [ -t 0 ] && echo "write your message, ctrl-d to send" >&2
+    sudo -n /usr/local/sbin/runv-priv write "$to"
+fi
