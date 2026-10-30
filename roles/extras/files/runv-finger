@@ -64,4 +64,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        sys.stdout.flush()
+    except (BrokenPipeError, ConnectionResetError):
+        # the client hung up before the answer (scanners do). not an error,
+        # and without this every one of them leaves a failed unit behind
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
