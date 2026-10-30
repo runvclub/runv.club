@@ -1,0 +1,17 @@
+Things to play when you should be doing something else:
+
+  botany       grow a plant. water it every day, or ask a friend to
+  nethack      the classic dungeon. it will kill you
+  frotz FILE   text adventures. grab one from https://ifarchive.org
+  tetris-bsd   also atc, worm, hangman, robots, boggle and more
+               (ls /usr/games)
+  fortune      a saying. cowsay, figlet and toilet dress it up:
+               fortune | cowsay
+  cmatrix, sl  just look
+
+Dungeon Crawl Stone Soup runs on the tildeverse, at
+https://crawl.tildeverse.org. In the terminal:
+
+  curl -so ~/.ssh/dcss https://crawl.tildeverse.org/dcss.key
+  chmod 600 ~/.ssh/dcss
+  ssh -i ~/.ssh/dcss dcss@crawl.tildeverse.org

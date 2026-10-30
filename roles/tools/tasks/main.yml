@@ -29,6 +29,132 @@
     state: present
     install_recommends: false
 
+# most tildes have these, and people come here to learn
+- name: languages
+  ansible.builtin.apt:
+    name:
+      - golang-go
+      - rustc
+      - cargo
+      - nodejs
+      - npm
+      - ruby
+      - lua5.4
+      - guile-3.0
+      - sbcl
+      - racket
+      - ghc
+      - sqlite3
+    state: present
+    install_recommends: false
+
+- name: editors, shells and clients
+  ansible.builtin.apt:
+    name:
+      - emacs-nox
+      - neovim
+      - micro
+      - zsh
+      - fish
+      - mosh
+      - lynx
+      - w3m
+      - amfora
+      - pandoc
+      - hugo
+    state: present
+    install_recommends: false
+
+- name: games and toys
+  ansible.builtin.apt:
+    name:
+      - bsdgames
+      - nethack-console
+      - frotz
+      - fortune-mod
+      - fortunes
+      - cowsay
+      - figlet
+      - toilet
+      - cmatrix
+      - sl
+    state: present
+    install_recommends: false
+
+# mosh logs in through sshd like anyone else, then talks udp
+- name: firewall for mosh
+  ansible.builtin.command: ufw allow 60000:61000/udp
+  register: ufw_rule
+  changed_when: "'Rule added' in ufw_rule.stdout"
+
+# botany isn't packaged. it keeps the shared garden next to its own code,
+# so the code is root's and the garden is a members' directory
+- name: botany source
+  ansible.builtin.get_url:
+    url: "https://github.com/jifunks/botany/archive/{{ botany_commit }}.tar.gz"
+    dest: /opt/botany-{{ botany_commit }}.tar.gz
+    checksum: "sha256:{{ botany_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: botany unpacked
+  ansible.builtin.unarchive:
+    src: /opt/botany-{{ botany_commit }}.tar.gz
+    dest: /opt
+    remote_src: true
+    owner: root
+    group: root
+    creates: /opt/botany-{{ botany_commit }}/botany.py
+
+# visitors water your plant through a file in your home. botany makes it
+# world writable, which would let anyone fill it up on your quota
+- name: botany visitor file stays yours
+  ansible.builtin.replace:
+    path: /opt/botany-{{ botany_commit }}/plant.py
+    regexp: 'os\.chmod\(visitor_filepath, 0o666\)'
+    replace: "os.chmod(visitor_filepath, 0o644)"
+
+- name: botany garden dir
+  ansible.builtin.file:
+    path: /var/lib/botany
+    state: directory
+    owner: root
+    group: members
+    mode: "2775"
+
+- name: botany garden files
+  ansible.builtin.copy:
+    content: ""
+    dest: /var/lib/botany/{{ item }}
+    owner: root
+    group: members
+    mode: "0664"
+    force: false
+  loop:
+    - garden_db.sqlite
+    - garden_file.json
+
+- name: botany points at the garden
+  ansible.builtin.file:
+    src: "{{ item.src }}"
+    dest: /opt/botany-{{ botany_commit }}/{{ item.dest }}
+    state: link
+    force: true
+  loop:
+    - { src: /var/lib/botany, dest: sqlite }
+    - { src: /var/lib/botany/garden_file.json, dest: garden_file.json }
+
+- name: botany command
+  ansible.builtin.copy:
+    content: |
+      #!/bin/sh
+      exec python3 /opt/botany-{{ botany_commit }}/botany.py "$@"
+    dest: /usr/local/bin/botany
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: chat command
   ansible.builtin.copy:
     src: chat

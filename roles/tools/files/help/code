@@ -1,0 +1,16 @@
+Installed here: C (gcc), Python, Perl, Go, Rust (rustc, cargo),
+JavaScript (node, npm), Ruby, Lua (lua5.4), Scheme (guile), Common Lisp
+(sbcl), Racket, Haskell (ghc) and SQLite (sqlite3).
+
+  go run hello.go
+  rustc hello.rs && ./hello
+  echo 'print(1+1)' | lua5.4
+
+Packages go into your home, they count toward your quota:
+
+  python3 -m venv ~/venv && ~/venv/bin/pip install requests
+  npm install --prefix ~/.local some-tool
+  cargo install some-tool        (ends up in ~/.cargo/bin)
+  gem install --user-install some-gem
+
+Missing a language or a tool? Ask: admin@runv.club

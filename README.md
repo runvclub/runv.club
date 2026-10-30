@@ -53,7 +53,9 @@ no proxies.
 
 Members get `help` (topics live in `/usr/local/share/runv/help`), a
 login banner that's different every time (`motd`), and the usual tools:
-editors, git, python, gcc, tmux, irssi, weechat, senpai.
+editors, git, tmux, irssi, weechat, senpai, compilers and interpreters for
+Python, C, Go, Rust, Node, Ruby, Lua, Haskell, Scheme, Common Lisp and
+Racket, and games (`help games`, botany included). mosh works on UDP 60000-61000.
 
 `runv` is the member dashboard, in the terminal: keys, tokens, pages,
 blog, pastes, access logs, stats and the state of every service. Every

@@ -13,6 +13,8 @@ help TOPIC, where TOPIC is one of:
   twtxt    tw "hello", a microblog in a text file
   board    the members forum, in the terminal
   finger   ~/.plan, for finger you@runv.club
+  code     the languages installed here
+  games    botany, nethack and friends
   ntfy     notifications and pub/sub at ntfy.runv.club
   feeds    your RSS reader at https://feeds.runv.club
   keys     adding or replacing SSH keys
