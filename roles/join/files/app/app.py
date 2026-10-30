@@ -7,18 +7,17 @@ process never sees the mail credentials.
 
 import configparser
 import datetime as dt
-import hashlib
 import hmac
 import json
 import math
 import os
 import pwd
 import secrets
-import time
 
 from flask import Flask, abort, redirect, render_template, request
 
 import runvcheck
+import runvform
 
 CONF = "/etc/runv-join/join.conf"
 SECRET = "/etc/runv-join/secret"
@@ -39,20 +38,11 @@ def secret():
 
 
 def form_token():
-    ts = str(int(time.time()))
-    sig = hmac.new(secret(), ts.encode(), hashlib.sha256).hexdigest()
-    return f"{ts}.{sig}"
+    return runvform.make(secret())
 
 
 def token_age(token):
-    try:
-        ts, sig = token.split(".", 1)
-    except ValueError:
-        return None
-    good = hmac.new(secret(), ts.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig, good):
-        return None
-    return time.time() - int(ts)
+    return runvform.check(secret(), token)[0]
 
 
 def pending():

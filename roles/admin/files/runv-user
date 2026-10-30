@@ -466,9 +466,20 @@ def feeds_remove(name):
     feeds_sql("delete from users where openid_connect_id = :'oid'", name)
 
 
+GBCTL = "/usr/local/lib/runv-guestbook/gbctl.py"
+
+
+def guestbook(name, action):
+    if os.path.exists(GBCTL):
+        out = run("runuser", "-u", "runvgb", "--", "python3", "-I", GBCTL, name, action, check=False)
+        if out.returncode != 0:
+            raise RuntimeError(f"guestbook {action}: {out.stderr.strip()[:200]}")
+
+
 def services_off(name):
     for step in (lambda: forgejo_login(name, False), lambda: linkding_active(name, False),
-                 lambda: irc_off(name), lambda: ntfy_remove(name), lambda: feeds_logout(name)):
+                 lambda: irc_off(name), lambda: ntfy_remove(name), lambda: feeds_logout(name),
+                 lambda: guestbook(name, "block")):
         try:
             step()
         except Exception as e:
@@ -477,7 +488,7 @@ def services_off(name):
 
 def services_on(name):
     for step in (lambda: forgejo_login(name, True), lambda: linkding_active(name, True),
-                 lambda: irc_on(name)):
+                 lambda: irc_on(name), lambda: guestbook(name, "unblock")):
         try:
             step()
         except Exception as e:
@@ -698,6 +709,7 @@ def purge_one(m, db, conf):
     if runvirc.available():
         runvirc.delete(m["username"])
     ntfy_remove(m["username"])
+    guestbook(m["username"], "purge")
     db.remove(m)
     log(f"purge {m['username']}")
     print(f"{m['username']} purged")

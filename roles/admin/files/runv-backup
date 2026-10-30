@@ -20,10 +20,15 @@ full)
     umask 077
     mkdir -p /var/backups/runv-db
     chmod 700 /var/backups/runv-db
-    for db in /var/lib/forgejo/data/forgejo.db /var/lib/linkding/db.sqlite3 /var/lib/soju/main.db /var/lib/ntfy/user.db; do
+    for db in /var/lib/forgejo/data/forgejo.db /var/lib/linkding/db.sqlite3 /var/lib/soju/main.db /var/lib/ntfy/user.db /var/lib/runv-guestbook/db/gb.db; do
         [ -f "$db" ] || continue
         python3 -I -c 'import sqlite3, sys; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect(sys.argv[2]))' \
             "$db" "/var/backups/runv-db/$(basename "$db")"
+        # opening a wal database can leave -wal and -shm behind, owned by
+        # root. hand them back or the service can't open its own database
+        for f in "$db-wal" "$db-shm"; do
+            if [ -e "$f" ]; then chown --reference="$db" "$f"; fi
+        done
     done
     if [ -x /usr/bin/miniflux ]; then
         runuser -u postgres -- pg_dump -Fc miniflux > /var/backups/runv-db/miniflux.pgdump

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>~{{ owner }}'s guestbook</title>
+<style>
+  html { background: #fff; color: #000; }
+  body { max-width: 34rem; margin: 0 auto; padding: {{ "1rem" if embed else "4rem 1.25rem" }}; font: 1.125rem/1.7 Georgia, "Times New Roman", serif; }
+  h1 { font-size: 1.5rem; font-weight: normal; margin: 0 0 2rem; }
+  p { margin: 0 0 1.25rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input[type=text], textarea { width: 100%; box-sizing: border-box; font: 1rem/1.5 ui-monospace, monospace; padding: .4rem; border: 1px solid #000; background: #fff; color: #000; }
+  textarea { min-height: 5rem; }
+  button { margin-top: 1rem; font: inherit; padding: .4rem 1.2rem; border: 1px solid #000; background: #000; color: #fff; cursor: pointer; }
+  .errors { border-left: 3px solid #8b0000; padding-left: 1rem; color: #8b0000; }
+  .hp { position: absolute; left: -10000px; }
+  .note { margin: 0 0 1.5rem; }
+  .note p { white-space: pre-wrap; margin: 0; }
+  .who { color: #555; font-size: 1rem; }
+  small { color: #444; }
+  a { color: #000; }
+</style>
+</head>
+<body>
+{% if not embed %}<h1><a href="/~{{ owner }}/">~{{ owner }}</a>'s guestbook</h1>{% endif %}
+
+{% if sent %}<p>Thanks! ~{{ owner }} reads every note before it shows up here.</p>{% endif %}
+
+{% if errors %}
+<div class="errors">
+{% for e in errors %}<p>{{ e }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<form method="post">
+  <input type="hidden" name="t" value="{{ token }}">
+  <div class="hp" aria-hidden="true">
+    <label for="website">Leave this empty</label>
+    <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+  </div>
+  <label for="author">Your name</label>
+  <input type="text" id="author" name="author" maxlength="40" value="{{ f.get('author', '') }}">
+  <label for="body">Your note</label>
+  <textarea id="body" name="body" required maxlength="500">{{ f.get('body', '') }}</textarea>
+  <small>Up to 500 characters. Shown once ~{{ owner }} approves it.</small><br>
+  <button type="submit">Sign</button>
+</form>
+
+<div style="margin-top: 2.5rem">
+{% for n in notes %}
+<div class="note">
+  <p>{{ n.body }}</p>
+  <span class="who">{{ n.author }}, {{ day(n.created) }}</span>
+</div>
+{% else %}
+<p>No notes yet.</p>
+{% endfor %}
+</div>
+
+{% if not embed %}<p><a href="/">runv.club</a></p>{% endif %}
+</body>
+</html>

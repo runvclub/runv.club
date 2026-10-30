@@ -1,6 +1,6 @@
 # members (uid 2000 and up) can't reach the services that only listen on
 # localhost, can't send mail straight out, and can't reach the tailnet
--A ufw-before-output -o lo -p tcp -m owner --uid-owner 2000-59999 -m multiport --dports 25,2586,3000,5432,7980,8001,8080,8090,9090,10001,10002,45876 -j REJECT --reject-with tcp-reset
+-A ufw-before-output -o lo -p tcp -m owner --uid-owner 2000-59999 -m multiport --dports 25,2586,3000,5432,7980,8001,8002,8080,8090,9090,10001,10002,45876 -j REJECT --reject-with tcp-reset
 -A ufw-before-output -p tcp -m owner --uid-owner 2000-59999 -m multiport --dports 25,465,587 -j REJECT --reject-with tcp-reset
 -A ufw-before-output -d 100.64.0.0/10 -m owner --uid-owner 2000-59999 -j REJECT
 -A ufw-before-output -d 169.254.0.0/16 -m owner --uid-owner 2000-59999 -j REJECT

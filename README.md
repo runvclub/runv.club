@@ -91,6 +91,19 @@ sudo. It only ever acts on whoever called it and takes no free arguments.
   group write bit (`mesg y`), with control characters stripped and at
   most five messages a minute.
 
+## Guestbooks
+
+`runv-guestbook` (flask on 127.0.0.1:8002, user `runvgb`) serves
+`/guestbook/NAME`, an iframe version at `/guestbook/NAME/embed` and the
+approved notes as json. A book is off until its owner runs
+`guestbook on`, and notes show up only after `guestbook ok N`.
+Moderation goes through `runv-priv guestbook`, which runs `gbctl.py` as
+`runvgb` with the caller's name, so nobody touches someone else's book and
+the database is never root's. Against spam: a signed one-use token
+(`runvform.py`, shared with the signup form), a honeypot, 3 notes per book
+and 10 overall per address a day (kept as a salted hash for 30 days), and
+nginx limits. Suspending a member closes their book, purging deletes it.
+
 ## IRC bouncer
 
 soju at `irc.runv.club:6697`, gamja at `https://chat.runv.club`. Every

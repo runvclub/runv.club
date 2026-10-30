@@ -1,0 +1,19 @@
+#!/bin/sh
+# guestbook: the one at https://runv.club/guestbook/YOU
+#
+#   guestbook            notes waiting for you to read
+#   guestbook all        every note, approved or not
+#   guestbook on|off     open or close it
+#   guestbook ok N       show note N on the page
+#   guestbook rm N       delete note N
+#   guestbook ban N      delete it, and that sender can't post to you again
+case "${1:-list}" in
+list|all|on|off) exec sudo -n /usr/local/sbin/runv-priv guestbook "${1:-list}" ;;
+ok|rm|ban)
+    if [ -z "${2:-}" ]; then
+        echo "guestbook $1 NUMBER" >&2
+        exit 2
+    fi
+    exec sudo -n /usr/local/sbin/runv-priv guestbook "$1" "$2" ;;
+*) sed -n '2,9s/^# \{0,1\}//p' "$0"; exit 2 ;;
+esac

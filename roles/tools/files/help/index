@@ -14,6 +14,7 @@ help TOPIC, where TOPIC is one of:
   twtxt    tw "hello", a microblog in a text file
   board    the members forum, in the terminal
   square   /srv/square, a directory everyone can write to
+  guestbook notes from your visitors
   finger   ~/.plan, for finger you@runv.club
   write    a message on someone's terminal
   code     the languages installed here

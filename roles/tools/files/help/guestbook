@@ -1,0 +1,25 @@
+A guestbook lets people who visit your page leave you a note. It's off
+until you turn it on:
+
+  guestbook on
+
+Then link to it from your page:
+
+  <a href="https://runv.club/guestbook/NAME">sign my guestbook</a>
+
+or put it right on the page:
+
+  <iframe src="https://runv.club/guestbook/NAME/embed" title="guestbook"
+          style="width:100%;height:30rem;border:0"></iframe>
+
+Notes show up only after you approve them. The login banner tells you
+when some are waiting.
+
+  guestbook            what's waiting, with numbers
+  guestbook ok 3       show note 3
+  guestbook rm 3       delete it
+  guestbook ban 3      delete it, and that sender can't post to you again
+  guestbook all        everything, approved or not
+  guestbook off        close it
+
+The approved notes are also at https://runv.club/guestbook/NAME.json.

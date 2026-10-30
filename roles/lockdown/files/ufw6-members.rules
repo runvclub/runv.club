@@ -1,4 +1,4 @@
 # same as for v4: no localhost services, no direct mail, no tailnet
--A ufw6-before-output -o lo -p tcp -m owner --uid-owner 2000-59999 -m multiport --dports 25,2586,3000,5432,7980,8001,8080,8090,9090,10001,10002,45876 -j REJECT --reject-with tcp-reset
+-A ufw6-before-output -o lo -p tcp -m owner --uid-owner 2000-59999 -m multiport --dports 25,2586,3000,5432,7980,8001,8002,8080,8090,9090,10001,10002,45876 -j REJECT --reject-with tcp-reset
 -A ufw6-before-output -p tcp -m owner --uid-owner 2000-59999 -m multiport --dports 25,465,587 -j REJECT --reject-with tcp-reset
 -A ufw6-before-output -d fd7a:115c:a1e0::/48 -m owner --uid-owner 2000-59999 -j REJECT

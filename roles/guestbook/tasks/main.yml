@@ -1,0 +1,75 @@
+# flask and gunicorn come with the join role, which runs first
+- name: runvgb user
+  ansible.builtin.user:
+    name: runvgb
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/runv-guestbook
+    create_home: false
+
+# the top and waiting/ are open so members can read how many notes wait
+- name: data dirs
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: runvgb
+    group: runvgb
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /var/lib/runv-guestbook, mode: "0755" }
+    - { path: /var/lib/runv-guestbook/db, mode: "0700" }
+    - { path: /var/lib/runv-guestbook/waiting, mode: "0755" }
+
+- name: config dir
+  ansible.builtin.file:
+    path: /etc/runv-guestbook
+    state: directory
+    owner: root
+    group: runvgb
+    mode: "0750"
+
+- name: secret
+  ansible.builtin.shell: umask 027 && python3 -I -c 'import secrets; print(secrets.token_hex(32))' > /etc/runv-guestbook/secret
+  args:
+    creates: /etc/runv-guestbook/secret
+
+- name: secret perms
+  ansible.builtin.file:
+    path: /etc/runv-guestbook/secret
+    owner: root
+    group: runvgb
+    mode: "0640"
+
+- name: guestbook.conf
+  ansible.builtin.template:
+    src: guestbook.conf.j2
+    dest: /etc/runv-guestbook/guestbook.conf
+    owner: root
+    group: runvgb
+    mode: "0640"
+  notify: restart runv-guestbook
+
+- name: app
+  ansible.builtin.copy:
+    src: app/
+    dest: /usr/local/lib/runv-guestbook/
+    owner: root
+    group: root
+    mode: u=rwX,go=rX
+  notify: restart runv-guestbook
+
+- name: unit
+  ansible.builtin.copy:
+    src: runv-guestbook.service
+    dest: /etc/systemd/system/runv-guestbook.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart runv-guestbook
+
+- name: running
+  ansible.builtin.systemd_service:
+    name: runv-guestbook
+    enabled: true
+    state: started
+    daemon_reload: true

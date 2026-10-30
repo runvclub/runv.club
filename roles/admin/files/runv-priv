@@ -7,6 +7,7 @@
 #   runv-priv token irc     new password for the irc bouncer
 #   runv-priv token ntfy    new token for ntfy.runv.club
 #   runv-priv board new|reply N   post to the board, text on stdin
+#   runv-priv guestbook ACTION [N]   moderate your own guestbook
 #   runv-priv write NAME    a message to another member's terminal, on
 #                           stdin. NAME must be an active member
 import argparse
@@ -111,6 +112,15 @@ def board(m, action, thread):
     print(f"posted. board read {thread}")
 
 
+def guestbook(m, action, note):
+    # as the guestbook's own user, so its database never ends up owned by root
+    cmd = ["runuser", "-u", "runvgb", "--", "python3", "-I", "/usr/local/lib/runv-guestbook/gbctl.py",
+           m["username"], action] + ([str(note)] if note is not None else [])
+    if not os.path.exists(cmd[6]):
+        die("guestbooks aren't set up yet")
+    sys.exit(subprocess.run(cmd).returncode)
+
+
 def strip_controls(line):
     # nothing that a terminal would act on: no escapes, no bidi tricks
     return "".join(c for c in line if c == "\t" or (c.isprintable() and not "\u202a" <= c <= "\u202e"
@@ -193,11 +203,16 @@ def main():
     b = sub.add_parser("board")
     b.add_argument("action", choices=["new", "reply"])
     b.add_argument("thread", nargs="?", type=int)
+    g = sub.add_parser("guestbook")
+    g.add_argument("action", choices=["list", "all", "on", "off", "ok", "rm", "ban"])
+    g.add_argument("note", nargs="?", type=int)
     w = sub.add_parser("write")
     w.add_argument("to")
     args = p.parse_args()
 
     m = caller()
+    if args.cmd == "guestbook":
+        guestbook(m, args.action, args.note)
     if args.cmd == "write":
         write_to(m, args.to)
         return

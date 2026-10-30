@@ -222,6 +222,14 @@ def news():
     return text if age <= 30 else None
 
 
+def guestbook_waiting(user):
+    try:
+        with open("/var/lib/runv-guestbook/waiting/" + user) as f:
+            return int(f.read().strip() or 0)
+    except (OSError, ValueError):
+        return 0
+
+
 def tip(user):
     tips = [
         "your page: https://runv.club/~%s/" % user,
@@ -238,6 +246,11 @@ def tip(user):
         "tell the world what you're up to: tw \"hello\"",
         "the members forum: type " + paint("board", bold=True),
         "write a ~/.plan and try: finger %s@runv.club" % user,
+        "a guestbook for your page: type " + paint("guestbook on", bold=True),
+        "a directory everyone shares: ls /srv/square",
+        "join the webring: touch ~/.ring (help ring)",
+        "say hi to someone who's on: write NAME hello",
+        "grow a plant: type " + paint("botany", bold=True),
     ]
     if os.path.exists(os.path.expanduser("~/.i2p-address")):
         tips.append("you have an eepsite. cat ~/.i2p-address")
@@ -311,6 +324,10 @@ def main():
     item = news()
     if item:
         print("  " + paint("news ", accent, bold=True) + item)
+    waiting = guestbook_waiting(user)
+    if waiting:
+        print("  " + paint("book ", accent, bold=True) + "%d note%s waiting in your guestbook: type "
+              % (waiting, "" if waiting == 1 else "s") + paint("guestbook", bold=True))
     print("  " + paint("tip  ", accent, bold=True) + tip(user))
     print()
     print("  " + paint("runv · help · chat · board · motd --party", (110, 110, 110)))
