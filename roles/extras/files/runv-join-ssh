@@ -91,7 +91,7 @@ def main():
     key = ask("Your SSH public key, the whole line from your .pub file:", lambda k: runvcheck.ssh_key(k)[0])
     about = ask("What do you want to do here? A few lines is plenty.", about_check, multiline=True)
     former = ask("Were you on the old runv.club? (y/n)").lower().startswith("y")
-    if not ask("Do you accept the rules? (y/n)").lower().startswith("y"):
+    if not ask("Are you 16 or older, and do you accept the rules? (y/n)").lower().startswith("y"):
         out("No problem. Bye!")
         return
     if not allowed(addr):
