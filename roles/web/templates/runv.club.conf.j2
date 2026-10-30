@@ -53,6 +53,16 @@ server {
         try_files /privacy.html =404;
     }
 
+    # the help topics, made by runv-help-web
+    location = /help {
+        return 301 /help/;
+    }
+
+    location /help/ {
+        try_files $uri $uri.html $uri/ =404;
+        error_page 404 /404;
+    }
+
     # ~user pages straight from the home dir. a member can't symlink their
     # way into files they don't own, and 403s look like 404s from outside
     location ~ "^/~(?<member>[a-z][a-z0-9_]{1,15})(?<rest>/.*)?$" {

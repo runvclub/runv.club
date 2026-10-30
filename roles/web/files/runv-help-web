@@ -1,0 +1,83 @@
+#!/usr/bin/python3 -I
+# the help topics members read with `help`, also at runv.club/help/.
+# run by ansible after the topics change. prints "changed" when it wrote
+# anything, so ansible can tell
+import html
+import os
+import re
+
+SRC = "/usr/local/share/runv/help"
+OUT = "/var/www/runv/help"
+CSS = """html { background: #fff; color: #000; }
+body { max-width: 40rem; margin: 0 auto; padding: 4rem 1.25rem;
+  font: 1.125rem/1.7 Georgia, "Times New Roman", serif; }
+h1 { font-size: 1.5rem; font-weight: normal; margin: 0 0 2rem; }
+a { color: #000; }
+pre { font-size: 1rem; line-height: 1.5; white-space: pre-wrap; }
+footer { margin-top: 3rem; font-size: 1rem; }"""
+URL = re.compile(r"https?://[^\s<>\"')]+")
+
+
+def page(title, body):
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+{CSS}
+</style>
+</head>
+<body>
+<h1>{title}</h1>
+<pre>{body}</pre>
+<footer><a href="/">runv.club</a> · <a href="/help/">help</a> · <a href="/rules">rules</a></footer>
+</body>
+</html>
+"""
+
+
+def linkify(text):
+    return URL.sub(lambda m: f'<a href="{m.group(0)}">{m.group(0)}</a>', text)
+
+
+def main():
+    topics = sorted(t for t in os.listdir(SRC) if re.fullmatch(r"[a-z0-9]+", t) and t != "index")
+    pages = {}
+    with open(os.path.join(SRC, "index")) as f:
+        index = html.escape(f.read())
+    # "  web      your page" becomes a link to that topic
+    index = re.sub(r"^(  )([a-z0-9]+)(?=\s)", lambda m: m.group(1) + (
+        f'<a href="/help/{m.group(2)}">{m.group(2)}</a>' if m.group(2) in topics else m.group(2)),
+        index, flags=re.M)
+    pages["index.html"] = page("help", linkify(index.replace("help TOPIC", "help TOPIC in the terminal")))
+    for t in topics:
+        with open(os.path.join(SRC, t)) as f:
+            pages[f"{t}.html"] = page(f"help {t}", linkify(html.escape(f.read())))
+
+    os.makedirs(OUT, mode=0o755, exist_ok=True)
+    changed = False
+    for name, text in pages.items():
+        path = os.path.join(OUT, name)
+        try:
+            with open(path, encoding="utf-8") as f:
+                if f.read() == text:
+                    continue
+        except FileNotFoundError:
+            pass
+        with open(path + ".new", "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(path + ".new", 0o644)
+        os.replace(path + ".new", path)
+        changed = True
+    for name in os.listdir(OUT):
+        if name not in pages:
+            os.remove(os.path.join(OUT, name))
+            changed = True
+    if changed:
+        print("changed")
+
+
+if __name__ == "__main__":
+    main()

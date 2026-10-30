@@ -38,6 +38,20 @@
     group: root
     mode: u=rwX,go=rX
 
+- name: help on the web
+  ansible.builtin.copy:
+    src: runv-help-web
+    dest: /usr/local/sbin/runv-help-web
+    owner: root
+    group: root
+    mode: "0755"
+
+# the topics come from the tools role, which runs before this one
+- name: help pages
+  ansible.builtin.command: /usr/local/sbin/runv-help-web
+  register: help_web
+  changed_when: "'changed' in help_web.stdout"
+
 - name: home page used to live in home.html
   ansible.builtin.file:
     path: /var/www/runv/home.html
