@@ -51,7 +51,8 @@ no proxies.
 
 ## On the box
 
-Members get `help` (topics live in `/usr/local/share/runv/help`), a
+Members get `help` (topics live in `/usr/local/share/runv/help`, and
+`runv-help-web` puts them at `/help` too), a
 login banner that's different every time (`motd`), and the usual tools:
 editors, git, tmux, irssi, weechat, senpai, compilers and interpreters for
 Python, C, Go, Rust, Node, Ruby, Lua, Haskell, Scheme, Common Lisp and
@@ -66,7 +67,10 @@ sudo. It only ever acts on whoever called it and takes no free arguments.
 - `blog`: markdown in `~/blog` becomes a blog with an Atom feed on the
   web, Gemini and Gopher. A timer rebuilds it as the member, every 3
   minutes, when something changed. `runv-planet` collects everyone's
-  posts at `/planet` and on the home page, and writes `/tilde.json`.
+  posts at `/planet` and on the home page, and writes `/tilde.json`, the
+  member directory at `/~` (with who changed their page in the last day,
+  also as a feed at `/updated.xml`) and the webring at `/ring`. Members
+  join the ring with `touch ~/.ring`.
 - `pb`: text from stdin to `~/public_html/p`, with an expiry.
 - `tw`: twtxt in `~/public_html/twtxt.txt`, with a timeline of all members.
 - `board`: a forum in the terminal. Posts are written by `runv-priv`

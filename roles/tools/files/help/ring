@@ -1,0 +1,15 @@
+The runv ring is a webring: every page in it links to the next one and
+the one before. To join:
+
+  touch ~/.ring
+
+Within 15 minutes you're on https://runv.club/ring/. Then put this on
+your page, with your name instead of NAME:
+
+  <p>
+    <a href="https://runv.club/ring/NAME/prev.html">prev</a> ·
+    <a href="https://runv.club/ring/">runv ring</a> ·
+    <a href="https://runv.club/ring/NAME/next.html">next</a>
+  </p>
+
+To leave, rm ~/.ring and take the links off.

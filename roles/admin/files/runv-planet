@@ -2,7 +2,7 @@
 # every 15 minutes: the latest posts of every active member, at
 # runv.club/planet, as a feed and as a short list on the home page. also
 # the member directory at runv.club/~, who changed their page in the last
-# day (also as a feed at /updated.xml) and /tilde.json
+# day (also as a feed at /updated.xml), the webring at /ring and /tilde.json
 import html
 import json
 import os
@@ -118,7 +118,65 @@ def directory(members):
 {lately}<ul>
 {items}
 </ul>
-<footer><a href="/">runv.club</a> · <a href="/planet/">planet</a> · <a href="/updated.xml">feed</a></footer>
+<footer><a href="/">runv.club</a> · <a href="/planet/">planet</a> · <a href="/ring/">ring</a> · <a href="/updated.xml">feed</a></footer>
+</body>
+</html>
+""")
+
+
+def in_ring(name, uid):
+    """~/.ring is the opt-in: a plain file of theirs, never a link."""
+    try:
+        st = os.lstat(os.path.join(pwd.getpwnam(name).pw_dir, ".ring"))
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode) and st.st_uid == uid
+
+
+def ring(members):
+    """Static pages only: /ring/NAME/next.html and prev.html send you on."""
+    import shutil
+    out = "/var/www/runv/ring"
+    names = [m["username"] for m in sorted(members, key=lambda m: (m.get("created_at") or "", m["username"]))
+             if in_ring(m["username"], m["uid"])]
+    os.makedirs(out, mode=0o755, exist_ok=True)
+
+    def hop(to):
+        return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=/~{to}/">
+<title>runv ring</title>
+</head>
+<body><p><a href="/~{to}/">on to ~{to}</a></p></body>
+</html>
+"""
+    for i, name in enumerate(names):
+        os.makedirs(os.path.join(out, name), mode=0o755, exist_ok=True)
+        write(os.path.join(out, name, "next.html"), hop(names[(i + 1) % len(names)]))
+        write(os.path.join(out, name, "prev.html"), hop(names[i - 1]))
+    for d in os.listdir(out):
+        if d not in names and os.path.isdir(os.path.join(out, d)) and not os.path.islink(os.path.join(out, d)):
+            shutil.rmtree(os.path.join(out, d))
+    items = "\n".join(f'<li><a href="/~{n}/">~{n}</a></li>' for n in names) or "<li>nobody yet</li>"
+    write(os.path.join(out, "index.html"), f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>runv ring</title>
+<style>
+{CSS}
+</style>
+</head>
+<body>
+<h1>runv ring</h1>
+<p>A webring of runv.club members. Each page links to the next one and the one before, all the way around. Members join with <code>touch ~/.ring</code>, and <code>help ring</code> has the links to put on your page.</p>
+<ul>
+{items}
+</ul>
+<footer><a href="/">runv.club</a> · <a href="/~">members</a></footer>
 </body>
 </html>
 """)
@@ -146,6 +204,7 @@ def main():
              "users": sorted(m["username"] for m in members)}
     write("/var/www/runv/tilde.json", json.dumps(tilde, indent=2) + "\n")
     directory(members)
+    ring(members)
     posts.sort(key=lambda p: p["date"], reverse=True)
     posts = posts[:50]
     os.makedirs(OUT, mode=0o755, exist_ok=True)
