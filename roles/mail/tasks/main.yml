@@ -51,7 +51,12 @@
     force: false
   loop:
     - /etc/postfix/runv-submitters
-    - /etc/postfix/runv-suspended.regexp
+    - /etc/postfix/runv-local.regexp
+
+- name: old name of the local delivery map
+  ansible.builtin.file:
+    path: /etc/postfix/runv-suspended.regexp
+    state: absent
 
 - name: list members dir
   ansible.builtin.file:

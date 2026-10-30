@@ -156,18 +156,23 @@ def write_to(m, to):
     if not ttys:
         die(f"{to} has messages turned off" if muted else f"{to} isn't logged in")
 
-    # five messages a minute is plenty for a person
+    # five messages a minute is plenty for a person. locked, so a pile of
+    # writes started at once still counts one by one
+    import fcntl
     os.makedirs("/run/runv-write", mode=0o700, exist_ok=True)
-    log, now = os.path.join("/run/runv-write", sender), time.time()
-    try:
-        with open(log) as f:
-            recent = [float(t) for t in f.read().split() if now - float(t) < 60]
-    except (OSError, ValueError):
-        recent = []
-    if len(recent) >= 5:
-        die("slow down, try again in a minute")
-    with open(log, "w") as f:
-        f.write(" ".join(str(t) for t in recent + [now]))
+    now = time.time()
+    with open(os.path.join("/run/runv-write", sender), "a+") as log:
+        fcntl.flock(log, fcntl.LOCK_EX)
+        log.seek(0)
+        try:
+            recent = [float(t) for t in log.read().split() if now - float(t) < 60]
+        except ValueError:
+            recent = []
+        if len(recent) >= 5:
+            die("slow down, try again in a minute")
+        log.seek(0)
+        log.truncate()
+        log.write(" ".join(str(t) for t in recent + [now]))
 
     text = sys.stdin.buffer.read(4000).decode("utf-8", "replace")
     lines = [strip_controls(l)[:300] for l in text.replace("\r", "").split("\n")]

@@ -8,10 +8,13 @@ Members get here through `sudo runv-priv guestbook`, which passes their own
 name. Every change is limited to notes of NAME.
 """
 
+import os
 import sys
 import time
 
-import gbdb
+# it runs with python3 -I, which leaves the script's own dir off the path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gbdb  # noqa: E402
 
 
 def die(msg):

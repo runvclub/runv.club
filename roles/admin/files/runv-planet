@@ -8,6 +8,7 @@ import json
 import os
 import pwd
 import stat
+import time
 import xml.etree.ElementTree as ET
 
 MEMBERS = "/var/lib/runv/members.json"
@@ -57,11 +58,21 @@ def last_change(home):
     """Newest mtime under ~/public_html, without following links. Capped, so
     a member with a million files can't make this slow."""
     newest, seen = 0, 0
-    for root, dirs, files in os.walk(os.path.join(home, "public_html"), followlinks=False):
+    top = os.path.join(home, "public_html")
+    if os.path.islink(top):
+        return 0
+    # a date in the future would keep someone at the top of the list
+    later = time.time() + 300
+    for root, dirs, files in os.walk(top, followlinks=False):
         dirs[:] = [d for d in dirs if not d.startswith(".")]
+        seen += 1
+        if seen > 5000:
+            return newest
         for f in files:
             try:
-                newest = max(newest, os.lstat(os.path.join(root, f)).st_mtime)
+                mtime = os.lstat(os.path.join(root, f)).st_mtime
+                if mtime < later:
+                    newest = max(newest, mtime)
             except OSError:
                 pass
             seen += 1

@@ -27,11 +27,13 @@ Each member gets 1G of RAM, 200 processes, one CPU, 2G of disk and
 the limits change (ansible runs it).
 Deleted homes sit in `/var/lib/runv/deleted` for 14 days before they
 are gone for good.
-Whatever they left in `/srv/square`, `/tmp` and `/var/tmp` goes with
-them, since uids get reused.
+What they left in `/srv/square` goes to the quarantine with them, and
+what's theirs in `/tmp`, `/var/tmp` and `/dev/shm` is removed, since uids
+get reused. A uid still in the quarantine isn't handed out again.
 
-`/srv/square` is the shared directory: mode 3777, so anyone writes and
-nobody touches other people's files, and the kernel's
+`/srv/square` is the shared directory: mode 1777, so anyone writes and
+nobody touches other people's files (no setgid: with umask 002, files in
+a members-group dir would be writable by everyone), and the kernel's
 `protected_*` settings cover links and fifos left there. It counts on
 quota and isn't backed up.
 

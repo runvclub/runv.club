@@ -101,7 +101,8 @@ def save_db(db):
 
 
 SUBMITTERS = "/etc/postfix/runv-submitters"
-SUSPENDED = "/etc/postfix/runv-suspended.regexp"
+LOCAL_MAP = "/etc/postfix/runv-local.regexp"
+LOCAL_DOMAINS = r"@(runv\.club|srv1\.runv\.club|localhost)$"
 LISTS = "/etc/postfix/runv-lists"
 LIST_DIR = "/var/lib/runv-lists"
 
@@ -134,15 +135,18 @@ def wanted_lists(home, uid):
 
 
 def mail_sync(db):
-    """Who may send mail (active members), whose mail bounces (suspended
-    ones) and who is on which list. Returns True if anything changed."""
+    """Who may send mail and who gets it (active members and the lists),
+    whose mail bounces (suspended members, and anyone else, system
+    accounts included) and who is on which list. True if anything changed."""
     if not os.path.exists(LISTS):
         return False
     active = sorted(m["username"] for m in db if m["status"] == "active")
     suspended = sorted(m["username"] for m in db if m["status"] == "suspended")
     changed = write_if_changed(SUBMITTERS, "".join(n + "\n" for n in active))
-    text = f"/^({'|'.join(suspended)})@/    error:5.2.1 this account is suspended\n" if suspended else ""
-    if write_if_changed(SUSPENDED, text):
+    text = f"/^({'|'.join(suspended)}){LOCAL_DOMAINS}/    error:5.2.1 this account is suspended\n" if suspended else ""
+    text += f"/^({'|'.join(active + [r'list\+[a-z0-9_-]+'])}){LOCAL_DOMAINS}/    local:\n"
+    text += f"/{LOCAL_DOMAINS}/    error:5.1.1 nobody by that name here\n"
+    if write_if_changed(LOCAL_MAP, text):
         run("postfix", "reload", check=False)
         changed = True
     with open(LISTS) as f:
@@ -195,15 +199,18 @@ def set_quota(name, conf):
         q.get("inodes_soft", "0"), q.get("inodes_hard", "0"), "/")
 
 
-SHARED = ("/srv/square", "/var/tmp", "/tmp")
+# what a member leaves in the square goes to their quarantine, what they
+# leave in the scratch dirs is just removed (/tmp is tmpfs, it can't move)
+SHARED = (("/srv/square", True), ("/var/tmp", False), ("/tmp", False), ("/dev/shm", False))
 
 
 def evict(uid, dest):
     """uids get reused, so whatever a deleted member left in the shared
-    dirs goes to their quarantine, or the next member would inherit it and
-    have it count on their quota. Directories of theirs that still hold
-    other people's files stay, handed to root."""
-    for top in SHARED:
+    dirs can't stay, or the next member would inherit it and have it count
+    on their quota. Directories of theirs that still hold other people's
+    files stay, handed to root. Never stops a delete halfway: what can't be
+    moved is reported and left for the admin."""
+    for top, keep_it in SHARED:
         if not os.path.isdir(top):
             continue
         keep = os.path.join(dest, "." + top.strip("/").replace("/", "-"))
@@ -211,30 +218,34 @@ def evict(uid, dest):
             rel = os.path.relpath(root, top)
             for n in files:
                 try:
-                    st = os.stat(n, dir_fd=fd, follow_symlinks=False)
-                except FileNotFoundError:
-                    continue
-                if st.st_uid != uid:
-                    continue
-                target = os.path.normpath(os.path.join(keep, rel, n))
-                os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
-                os.rename(n, target, src_dir_fd=fd)
+                    if os.stat(n, dir_fd=fd, follow_symlinks=False).st_uid != uid:
+                        continue
+                    if keep_it:
+                        target = os.path.normpath(os.path.join(keep, rel, n))
+                        os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+                        os.rename(n, target, src_dir_fd=fd)
+                    else:
+                        os.unlink(n, dir_fd=fd)
+                except OSError as e:
+                    print(f"warning: {os.path.join(root, n)}: {e}", file=sys.stderr)
             for n in dirs:
                 try:
                     st = os.stat(n, dir_fd=fd, follow_symlinks=False)
-                except FileNotFoundError:
-                    continue
-                if st.st_uid != uid or not stat.S_ISDIR(st.st_mode):
-                    continue
-                try:
-                    os.rmdir(n, dir_fd=fd)
-                except OSError:
-                    os.chown(n, 0, 0, dir_fd=fd, follow_symlinks=False)
-                    os.chmod(n, 0o1777, dir_fd=fd, follow_symlinks=False)
+                    if st.st_uid != uid or not stat.S_ISDIR(st.st_mode):
+                        continue
+                    try:
+                        os.rmdir(n, dir_fd=fd)
+                    except OSError:
+                        os.chown(n, 0, 0, dir_fd=fd, follow_symlinks=False)
+                        os.chmod(n, 0o1777, dir_fd=fd, follow_symlinks=False)
+                except OSError as e:
+                    print(f"warning: {os.path.join(root, n)}: {e}", file=sys.stderr)
 
 
-def next_uid(start):
-    used = {p.pw_uid for p in pwd.getpwall()} | {g.gr_gid for g in grp.getgrall()}
+def next_uid(start, db=()):
+    # a home waiting in the quarantine still has its owner's uid, and a new
+    # member with that uid would get its files on their quota
+    used = {p.pw_uid for p in pwd.getpwall()} | {g.gr_gid for g in grp.getgrall()} | {m["uid"] for m in db if "uid" in m}
     uid = start
     while uid in used:
         uid += 1
@@ -616,7 +627,7 @@ def create(conf, db, name, mail, key, fingerprint):
         die(f"{name} is taken")
 
     m = conf["members"]
-    uid = next_uid(m.getint("uid_min"))
+    uid = next_uid(m.getint("uid_min"), db)
     run("useradd", "--create-home", "--skel", m["skel"], "--shell", m["shell"],
         "--uid", str(uid), "--user-group", "--groups", m["group"], name)
     try:
@@ -738,7 +749,10 @@ def cmd_delete(args, conf, db):
     run("loginctl", "disable-linger", name, check=False)
     run("setquota", "-u", name, "0", "0", "0", "0", "/", check=False)
     run("crontab", "-r", "-u", name, check=False)
-    evict(m["uid"], dest)
+    try:
+        evict(m["uid"], dest)
+    except Exception as e:
+        print(f"warning: shared dirs not cleaned: {e}", file=sys.stderr)
     run("userdel", name)
     drop_slice(m["uid"])
     for spool in (f"/var/mail/{name}", f"/var/spool/mail/{name}"):
@@ -774,7 +788,10 @@ def purge_one(m, db, conf):
     if runvirc.available():
         runvirc.delete(m["username"])
     ntfy_remove(m["username"])
-    guestbook(m["username"], "purge")
+    try:
+        guestbook(m["username"], "purge")
+    except Exception as e:
+        print(f"warning: {e}", file=sys.stderr)
     db.remove(m)
     log(f"purge {m['username']}")
     print(f"{m['username']} purged")

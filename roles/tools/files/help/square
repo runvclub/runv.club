@@ -3,11 +3,14 @@ a story written by three people, whatever you like:
 
   echo "hello from $USER" > /srv/square/hello-$USER.txt
 
-Only you can delete or rename what's yours there. For a project with
-other people, make a directory everyone in it can add to:
+Only you can change, delete or rename what's yours there. For a project
+with other people, make a directory everyone can add to:
 
-  mkdir /srv/square/zine && chmod g+w,+t /srv/square/zine
+  mkdir /srv/square/zine
+  chgrp members /srv/square/zine
+  chmod g+ws,+t /srv/square/zine
 
-Files in it get the members group, so g+w lets others add theirs, and
-+t keeps anyone from deleting someone else's. It all counts toward your
+The s makes new files in it belong to the members group, g+w lets others
+add theirs, and +t keeps anyone from deleting someone else's. Files
+other people can edit need g+w on them too. It all counts toward your
 quota and isn't backed up. Read /srv/square/README.

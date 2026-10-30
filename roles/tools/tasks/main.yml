@@ -115,6 +115,10 @@
     regexp: 'os\.chmod\(visitor_filepath, 0o666\)'
     replace: "os.chmod(visitor_filepath, 0o644)"
 
+- name: botany visitor file patch took
+  ansible.builtin.command: grep -q 'os.chmod(visitor_filepath, 0o644)' /opt/botany-{{ botany_commit }}/plant.py
+  changed_when: false
+
 - name: botany garden dir
   ansible.builtin.file:
     path: /var/lib/botany

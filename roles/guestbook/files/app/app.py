@@ -8,6 +8,7 @@ a book that isn't on is a 404, like one that doesn't exist.
 import configparser
 import hashlib
 import hmac
+import ipaddress
 import sqlite3
 import time
 import unicodedata
@@ -48,6 +49,17 @@ def clean(text, lines):
     for line in text.replace("\r", "").split("\n")[:lines]:
         out.append("".join(ch for ch in line if ch == "\t" or unicodedata.category(ch)[0] != "C").rstrip())
     return "\n".join(out).strip()
+
+
+def visitor():
+    """Who's posting, for the limits: the address, or its /64 on IPv6,
+    since one person usually has a whole /64 to hop around in."""
+    addr = request.headers.get("X-Real-IP", "")
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return addr
+    return str(ipaddress.ip_network(f"{ip}/64", strict=False)) if ip.version == 6 else addr
 
 
 def book(owner):
@@ -95,7 +107,7 @@ def sign(owner):
     age, nonce = runvform.check(secret(), f.get("t", ""), owner)
     author = clean(f.get("author", ""), 1)[:40] or "someone"
     body = clean(f.get("body", ""), 10)
-    ip = hmac.new(secret(), request.headers.get("X-Real-IP", "").encode(), hashlib.sha256).hexdigest()[:16]
+    ip = hmac.new(secret(), visitor().encode(), hashlib.sha256).hexdigest()[:16]
     now = int(time.time())
 
     ok = not f.get("website") and age is not None and conf().getint("min_seconds") <= age <= 7200

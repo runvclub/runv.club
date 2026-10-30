@@ -56,14 +56,15 @@
 
 # like /town/square: everyone writes, nobody touches what isn't theirs.
 # it has to be world writable for the kernel's symlink and fifo protections
-# to cover it, and only members and admins have a shell anyway
+# to cover it, and only members and admins have a shell anyway. no setgid:
+# members have umask 002 and their own group, so files stay their own
 - name: the square
   ansible.builtin.file:
     path: /srv/square
     state: directory
     owner: root
-    group: members
-    mode: "3777"
+    group: root
+    mode: "1777"
 
 - name: square readme
   ansible.builtin.copy:
