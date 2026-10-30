@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>about runv.club</title>
+<style>
+  html { background: #fff; color: #000; }
+  body { max-width: 34rem; margin: 0 auto; padding: 4rem 1.25rem; font: 1.125rem/1.7 Georgia, "Times New Roman", serif; }
+  h1 { font-size: 1.5rem; font-weight: normal; margin: 0 0 2rem; }
+  h2 { font-size: 1.125rem; margin: 2rem 0 .5rem; }
+  p, ul { margin: 0 0 1.25rem; }
+  a { color: #000; }
+</style>
+</head>
+<body>
+<main>
+<h1>About runv.club</h1>
+
+<p>runv.club is run by Pablo Murad (<a href="/~pmurad/">~pmurad</a>), from Brazil. He's the only one with root. Write to <a href="mailto:admin@runv.club">admin@runv.club</a> for anything about your account or the server.</p>
+
+<h2>How it's built</h2>
+
+<p>The whole server is set up from <a href="https://github.com/runvclub/runv.club">one public repository</a>, with Ansible. Nothing is changed by hand, so what you read there is what runs here. If you spot a hole, tell us before anyone else does.</p>
+
+<h2>Suspensions and deletions</h2>
+
+<p>Breaking the <a href="/rules">rules</a> gets an account suspended: you can't log in and your pages go dark, but nothing is deleted, and we write to tell you why. Serious cases get deleted. A deleted home is kept for 14 days in case it was a mistake, then it's gone.</p>
+
+<h2>What it costs</h2>
+
+<ul>
+{% for c in about_costs %}
+  <li>{{ c.what | e }}: {{ c.cost | e }}</li>
+{% endfor %}
+</ul>
+
+<p>That's about {{ about_total | e }} a month, and Pablo pays it. We don't take donations. If that ever changes, it will say so here first.</p>
+
+<p><a href="/">runv.club</a> · <a href="/help/">help</a> · <a href="/rules">rules</a> · <a href="/privacy">privacy</a></p>
+</main>
+</body>
+</html>

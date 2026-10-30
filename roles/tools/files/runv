@@ -122,10 +122,21 @@ def view_status():
     posts = files_in(os.path.join(HOME, "blog"), "*.md")
     pastes = files_in(os.path.join(HOME, "public_html", "p"))
     tw = [l for l in read_lines(os.path.join(HOME, "public_html", "twtxt.txt")) if l and l[0] != "#"]
+    gb = guestbook_waiting()
     return [("info", info), ("services", services), ("pages", pages),
             ("blog", [("posts", str(len(posts))), ("oldest", span(posts)[0]), ("newest", span(posts)[1])]),
             ("pastes", [("pastes", str(len(pastes))), ("newest", span(pastes)[1])]),
-            ("twtxt", [("entries", str(len(tw)))])]
+            ("twtxt", [("entries", str(len(tw)))]),
+            ("guestbook", [("waiting", (str(gb), "yellow") if gb else "0")])]
+
+
+# the guestbook app keeps a count of each member's pending notes
+def guestbook_waiting():
+    try:
+        with open("/var/lib/runv-guestbook/waiting/" + USER) as f:
+            return int(f.read().strip() or 0)
+    except (OSError, ValueError):
+        return 0
 
 
 def key_list():

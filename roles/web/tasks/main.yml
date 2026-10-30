@@ -38,6 +38,31 @@
     group: root
     mode: u=rwX,go=rX
 
+# /about only goes up once the costs are in. the home page pulls the link
+# in with ssi, so it shows up and goes away with the page
+- name: about page
+  ansible.builtin.template:
+    src: about.html.j2
+    dest: /var/www/runv/about.html
+    owner: root
+    group: root
+    mode: "0644"
+  when: about_costs | length > 0
+
+- name: no about page without the costs
+  ansible.builtin.file:
+    path: /var/www/runv/about.html
+    state: absent
+  when: about_costs | length == 0
+
+- name: about link for the home page
+  ansible.builtin.copy:
+    content: "{{ ' · <a href=\"/about\">about</a>' if about_costs | length > 0 else '' }}"
+    dest: /var/www/runv/about-link.html
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: help on the web
   ansible.builtin.copy:
     src: runv-help-web

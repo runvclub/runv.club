@@ -9,3 +9,12 @@ web_cert_names:
   - chat.runv.club
   - ntfy.runv.club
   - feeds.runv.club
+
+# what the server costs, for /about. the page and its link on the home page
+# stay off until this is filled in, like so:
+#   about_costs:
+#     - {what: "the server, a Contabo VPS in France", cost: "€00 a month"}
+#     - {what: "the domain", cost: "€00 a year"}
+#   about_total: "€00"
+about_costs: []
+about_total: ""
