@@ -1,7 +1,8 @@
 #!/usr/bin/python3 -I
 # every 15 minutes: the latest posts of every active member, at
 # runv.club/planet, as a feed and as a short list on the home page. also
-# the member directory at runv.club/~ and /tilde.json
+# the member directory at runv.club/~, who changed their page in the last
+# day (also as a feed at /updated.xml) and /tilde.json
 import html
 import json
 import os
@@ -16,6 +17,7 @@ CSS = """html { background: #fff; color: #000; }
 body { max-width: 34rem; margin: 0 auto; padding: 4rem 1.25rem;
   font: 1.125rem/1.7 Georgia, "Times New Roman", serif; }
 h1 { font-size: 1.5rem; font-weight: normal; margin: 0 0 2rem; }
+h2 { font-size: 1.125rem; font-weight: bold; margin: 2rem 0 .75rem; }
 a { color: #000; }
 ul { list-style: none; padding: 0; }
 li { margin: 0 0 .75rem; }
@@ -83,12 +85,29 @@ def directory(members):
                 f'{", joined " + joined if joined else ""}</span></li>')
 
     items = "\n".join(li(*r) for r in rows) or "<li>nobody yet</li>"
+    now = dt.datetime.now().timestamp()
+    recent = [r for r in rows if r[0] > now - 86400]
+    lately = ""
+    if recent:
+        lately = ("<h2>Updated in the last 24 hours</h2>\n<ul>\n"
+                  + "\n".join(f'<li><a href="/~{n}/">~{n}</a></li>' for _, n, _ in recent) + "\n</ul>\n"
+                  + "<h2>Everyone</h2>\n")
+    stamp = lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    entries = "".join(
+        f"<entry><title>~{n} updated their page</title><link href=\"https://runv.club/~{n}/\"/>"
+        f"<id>https://runv.club/~{n}/#{stamp(t)}</id><updated>{stamp(t)}</updated>"
+        f"<author><name>{n}</name></author></entry>" for t, n, _ in recent)
+    write(os.path.join("/var/www/runv", "updated.xml"), '<?xml version="1.0" encoding="utf-8"?>\n'
+          '<feed xmlns="http://www.w3.org/2005/Atom"><title>runv.club, updated lately</title>'
+          '<link href="https://runv.club/~/"/><id>https://runv.club/updated.xml</id>'
+          f"<updated>{stamp(recent[0][0] if recent else now)}</updated>{entries}</feed>\n")
     write(os.path.join("/var/www/runv", "members.html"), f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>runv.club members</title>
+<link rel="alternate" type="application/atom+xml" title="updated lately" href="/updated.xml">
 <style>
 {CSS}
 </style>
@@ -96,10 +115,10 @@ def directory(members):
 <body>
 <h1>~ members</h1>
 <p>{len(rows)} {"person lives" if len(rows) == 1 else "people live"} on runv.club. Newest changes first.</p>
-<ul>
+{lately}<ul>
 {items}
 </ul>
-<footer><a href="/">runv.club</a> · <a href="/planet/">planet</a></footer>
+<footer><a href="/">runv.club</a> · <a href="/planet/">planet</a> · <a href="/updated.xml">feed</a></footer>
 </body>
 </html>
 """)
