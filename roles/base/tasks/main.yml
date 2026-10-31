@@ -70,6 +70,14 @@
     group: root
     mode: "0644"
 
+- name: unattended upgrades for tailscale too
+  ansible.builtin.copy:
+    src: 52runv-origins
+    dest: /etc/apt/apt.conf.d/52runv-origins
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: firewall status
   ansible.builtin.command: ufw status verbose
   register: ufw_status

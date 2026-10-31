@@ -144,7 +144,9 @@ def main():
         if any(b in ua.lower() for b in BOTS):
             continue
         day = when[:10]
-        salt = salts.setdefault(day, salt_for(day) if day == today else None)
+        if day not in salts:
+            salts[day] = salt_for(day) if day == today else None
+        salt = salts[day]
         if salt is None:
             continue  # yesterday's salt is gone, on purpose
         visitor = hashlib.sha256(f"{salt}|{addr}|{ua}".encode()).hexdigest()[:16]

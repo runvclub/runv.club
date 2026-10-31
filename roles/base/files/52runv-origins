@@ -1,0 +1,4 @@
+// tailscale comes from its own repo, which the debian defaults skip
+Unattended-Upgrade::Origins-Pattern {
+        "origin=Tailscale";
+};
