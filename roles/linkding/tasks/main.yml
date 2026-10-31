@@ -157,8 +157,9 @@
 - name: databases belong to linkding and nobody else
   ansible.builtin.shell: |
     for f in /var/lib/linkding/*.sqlite3* /var/lib/linkding/secretkey.txt; do
+      [ -L "$f" ] && continue
       if [ "$(stat -c %U:%a "$f")" != "linkding:600" ]; then
-        chown linkding:linkding "$f"; chmod 600 "$f"; echo fixed
+        chown -h linkding:linkding "$f"; chmod 600 "$f"; echo fixed
       fi
     done
   register: ld_perms

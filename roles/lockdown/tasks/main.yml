@@ -72,3 +72,43 @@
     path: /etc/pam.d/su
     line: "auth       requisite  pam_succeed_if.so quiet user != join"
     insertbefore: "^auth\\s+sufficient\\s+pam_rootok.so"
+
+# without pam_systemd a cron job runs inside cron.service, outside the
+# member's slice and its memory and cpu limits
+- name: cron jobs land in the member's own slice
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/cron
+    line: "session    optional   pam_systemd.so"
+    insertafter: "^@include common-session-noninteractive"
+
+- name: cron drop-in dir
+  ansible.builtin.file:
+    path: /etc/systemd/system/cron.service.d
+    state: directory
+    mode: "0755"
+
+- name: cron itself has a ceiling too
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      MemoryMax=2G
+      CPUQuota=200%
+      TasksMax=1000
+    dest: /etc/systemd/system/cron.service.d/runv.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: cron_limits
+
+- name: cron picks up the ceiling
+  ansible.builtin.systemd_service:
+    name: cron
+    daemon_reload: true
+    state: restarted
+  when: cron_limits.changed
+
+# the repo holds host_vars (the admin's address, the monitor's ip)
+- name: this repo is the admin's alone
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}"
+    mode: "0700"

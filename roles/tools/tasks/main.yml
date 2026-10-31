@@ -125,7 +125,9 @@
     state: directory
     owner: root
     group: members
-    mode: "2775"
+    # sticky: everyone can water the garden, nobody can delete or swap
+    # the files under it (and the kernel's link protections apply)
+    mode: "3775"
 
 - name: botany garden files
   ansible.builtin.copy:
@@ -251,3 +253,14 @@
     group: root
     mode: "0644"
     force: false
+
+# bsdgames and nethack are setgid games for a shared high score list. it's
+# old code with a history of overflows, and not worth a group for it
+- name: games without setgid
+  ansible.builtin.shell: |
+    for f in $(find /usr/games /usr/lib/games -type f -perm -2000 2>/dev/null); do
+      dpkg-statoverride --list "$f" >/dev/null && continue
+      dpkg-statoverride --update --add root root 0755 "$f" && echo "changed $f"
+    done
+  register: games_sgid
+  changed_when: "'changed' in games_sgid.stdout"

@@ -26,19 +26,23 @@ full)
             "$db" "/var/backups/runv-db/$(basename "$db")"
         # opening a wal database can leave -wal and -shm behind, owned by
         # root. hand them back or the service can't open its own database
+        # these dirs belong to the services, so never through a link
         for f in "$db-wal" "$db-shm"; do
-            if [ -e "$f" ]; then chown --reference="$db" "$f"; fi
+            if [ -e "$f" ] && [ ! -L "$f" ]; then chown -h --reference="$db" "$f"; fi
         done
     done
     if [ -x /usr/bin/miniflux ]; then
         runuser -u postgres -- pg_dump -Fc miniflux > /var/backups/runv-db/miniflux.pgdump
     fi
     paths="/home /root /etc /opt /var/lib/runv /var/backups/runv-db"
-    for p in /var/lib/forgejo /var/lib/linkding /var/lib/soju /var/lib/runv-join /var/lib/runv-board; do
+    for p in /var/lib/forgejo /var/lib/linkding /var/lib/soju /var/lib/runv-join /var/lib/runv-board \
+             /var/mail /var/spool/cron/crontabs /var/lib/runv-lists /var/lib/runv-stats /var/lib/botany; do
         [ -d "$p" ] && paths="$paths $p"
     done
     # shellcheck disable=SC2086
-    restic backup -q --tag full --one-file-system --exclude-caches \
+    # nothing a member owns can be bigger than their quota, so a bigger file
+    # is a sparse one made to keep restic reading zeros for hours
+    restic backup -q --tag full --one-file-system --exclude-caches --exclude-larger-than 3G \
         --exclude-file /etc/runv/backup-exclude $paths
     restic forget -q --tag full --keep-last 6 --prune
     restic check -q --read-data-subset=5%
