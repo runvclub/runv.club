@@ -2,6 +2,7 @@
 # what `ssh join@runv.club` runs: the signup form, asked one question at a
 # time, sent to the same form the website uses. so it has the same checks,
 # the same line and the same weekly limit.
+import fcntl
 import html
 import json
 import os
@@ -15,10 +16,13 @@ import urllib.request
 
 sys.path.insert(0, "/usr/local/lib/runv")
 import runvcheck  # noqa: E402
+import runvtext  # noqa: E402
 
 FORM = "http://127.0.0.1:8001/join"
 RATE = os.path.expanduser("~/rate.json")
-PER_ADDR, PER_DAY = 3, 30
+# tries per address (a /64 on IPv6) per hour. the form itself also caps
+# how many requests can wait from one place
+PER_ADDR = 3
 
 
 def out(text=""):
@@ -53,19 +57,22 @@ def about_check(text):
 
 
 def allowed(addr):
-    now = time.time()
-    try:
-        with open(RATE) as f:
-            seen = {k: [t for t in v if now - t < 86400] for k, v in json.load(f).items()}
-    except (OSError, ValueError):
-        seen = {}
-    mine = [t for t in seen.get(addr, []) if now - t < 3600]
-    if len(mine) >= PER_ADDR or sum(len(v) for v in seen.values()) >= PER_DAY:
-        return False
-    seen.setdefault(addr, []).append(now)
-    with open(RATE + ".new", "w") as f:
-        json.dump(seen, f)
-    os.replace(RATE + ".new", RATE)
+    who = runvtext.visitor(addr)
+    with open(RATE + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        now = time.time()
+        try:
+            with open(RATE) as f:
+                seen = {k: [t for t in v if now - t < 3600] for k, v in json.load(f).items()}
+        except (OSError, ValueError):
+            seen = {}
+        seen = {k: v for k, v in seen.items() if v}
+        if len(seen.get(who, [])) >= PER_ADDR:
+            return False
+        seen.setdefault(who, []).append(now)
+        with open(RATE + ".new", "w") as f:
+            json.dump(seen, f)
+        os.replace(RATE + ".new", RATE)
     return True
 
 
@@ -89,7 +96,8 @@ def main():
     name = ask("Username you want:", runvcheck.username)
     mail = ask("Your email (only used to write to you about the account):", runvcheck.email)
     key = ask("Your SSH public key, the whole line from your .pub file:", lambda k: runvcheck.ssh_key(k)[0])
-    about = ask("What do you want to do here? A few lines is plenty.", about_check, multiline=True)
+    about = ask("What do you want to do here? A few lines is plenty.",
+                lambda t: about_check(runvtext.clean(t).strip()), multiline=True)
     former = ask("Were you on the old runv.club? (y/n)").lower().startswith("y")
     if not ask("Are you 16 or older, and do you accept the rules? (y/n)").lower().startswith("y"):
         out("No problem. Bye!")
@@ -107,7 +115,7 @@ def main():
             return None
 
     req = urllib.request.Request(FORM, urllib.parse.urlencode(data).encode(),
-                                 headers={"X-Forwarded-For": addr})
+                                 headers={"X-Real-IP": addr})
     try:
         urllib.request.build_opener(NoRedirect).open(req, timeout=20)
         out("Something unexpected happened. Try https://runv.club/join instead.")

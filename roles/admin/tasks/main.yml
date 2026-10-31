@@ -43,6 +43,7 @@
     - runvsecret.py
     - runvirc.py
     - runvform.py
+    - runvtext.py
 
 - name: admin commands
   ansible.builtin.copy:

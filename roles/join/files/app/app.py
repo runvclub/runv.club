@@ -7,21 +7,29 @@ process never sees the mail credentials.
 
 import configparser
 import datetime as dt
+import fcntl
+import hashlib
 import hmac
 import json
 import math
 import os
 import pwd
 import secrets
+import time
 
 from flask import Flask, abort, redirect, render_template, request
 
 import runvcheck
 import runvform
+import runvtext
 
 CONF = "/etc/runv-join/join.conf"
 SECRET = "/etc/runv-join/secret"
 QUEUE = "/var/lib/runv-join/queue"
+NONCES = "/var/lib/runv-join/nonces"
+LOCK = "/var/lib/runv-join/.lock"
+# requests waiting from one address (a /64 on IPv6)
+PER_VISITOR = 3
 
 app = Flask(__name__)
 
@@ -42,7 +50,31 @@ def form_token():
 
 
 def token_age(token):
-    return runvform.check(secret(), token)[0]
+    """Seconds since the form was made, or None if it's not ours or was
+    already sent once."""
+    age, nonce = runvform.check(secret(), token)
+    if age is None:
+        return None
+    os.makedirs(NONCES, mode=0o700, exist_ok=True)
+    cutoff = time.time() - 7200
+    for old in os.listdir(NONCES):
+        try:
+            if os.stat(os.path.join(NONCES, old)).st_mtime < cutoff:
+                os.remove(os.path.join(NONCES, old))
+        except FileNotFoundError:
+            pass
+    try:
+        os.close(os.open(os.path.join(NONCES, nonce), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    except FileExistsError:
+        return None
+    return age
+
+
+def visitor():
+    """A keyed hash of who's asking, so the limits can count requests per
+    address without keeping the address."""
+    who = runvtext.visitor(request.headers.get("X-Real-IP", ""))
+    return hmac.new(secret(), who.encode(), hashlib.sha256).hexdigest()[:16]
 
 
 def pending():
@@ -55,6 +87,8 @@ def pending():
 
 
 def by_token(token):
+    if not token.isascii():
+        return None, None
     for pos, r in enumerate(pending(), 1):
         if hmac.compare_digest(r["token"], token):
             return pos, r
@@ -93,15 +127,21 @@ def submit():
     if st != "open":
         return render_template("join.html", state=st, token="", errors=[], f={}), 503
 
+    # a page somewhere else (a member's page included, which is sandboxed
+    # and says "null") can't send this form from a visitor's browser
+    origin = request.headers.get("Origin")
+    if origin is not None and origin != conf()["base_url"]:
+        abort(403)
+
     f = request.form
     errors = []
     age = token_age(f.get("t", ""))
     if f.get("website") or age is None or age < conf().getint("min_seconds") or age > 7200:
-        # bots, or a form left open for hours. no detail on purpose
+        # bots, a form left open for hours, or the same form twice. no detail on purpose
         errors.append("Something went wrong with the form, please try again.")
 
     name = f.get("username", "").strip().lower()
-    about = f.get("about", "").strip()
+    about = runvtext.clean(f.get("about", "")).strip()
     key = fingerprint = mail = None
     try:
         name = runvcheck.username(name)
@@ -127,29 +167,36 @@ def submit():
     if not f.get("rules"):
         errors.append("You need to accept the rules.")
 
-    queue = pending()
-    if any(r["username"] == name for r in queue):
-        errors.append(f"Someone already asked for {name}.")
-    if mail and any(r["email"].lower() == mail.lower() for r in queue):
-        errors.append("There is already a request with that email in line.")
+    who = visitor()
+    # two requests at once can't both pass the checks below
+    with open(LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        queue = pending()
+        if any(r["username"] == name for r in queue):
+            errors.append(f"Someone already asked for {name}.")
+        if mail and any(r["email"].lower() == mail.lower() for r in queue):
+            errors.append("There is already a request with that email in line.")
+        if sum(r.get("visitor") == who for r in queue) >= PER_VISITOR:
+            errors.append("There are already enough requests in line from where you are.")
 
-    if errors:
-        return render_template("join.html", state=st, token=form_token(),
-                               errors=errors, f=f), 400
+        if errors:
+            return render_template("join.html", state=st, token=form_token(),
+                                   errors=errors, f=f), 400
 
-    r = {
-        "id": secrets.token_hex(4),
-        "token": secrets.token_urlsafe(24),
-        "username": name,
-        "email": mail,
-        "key": key,
-        "key_fingerprint": fingerprint,
-        "about": about,
-        "former_member": bool(f.get("former")),
-        "created_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
-        "receipt_sent": False,
-    }
-    save(r)
+        r = {
+            "id": secrets.token_hex(4),
+            "token": secrets.token_urlsafe(24),
+            "username": name,
+            "email": mail,
+            "key": key,
+            "key_fingerprint": fingerprint,
+            "about": about,
+            "former_member": bool(f.get("former")),
+            "created_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
+            "receipt_sent": False,
+            "visitor": who,
+        }
+        save(r)
     return redirect(f"/join/status/{r['token']}", code=303)
 
 
@@ -166,6 +213,9 @@ def confirm(token):
     pos, r = by_token(token)
     if not r:
         abort(404)
+    origin = request.headers.get("Origin")
+    if request.method == "POST" and origin is not None and origin != conf()["base_url"]:
+        abort(403)
     done = False
     # a GET only shows the button, so link scanners in mail clients
     # don't confirm on the person's behalf

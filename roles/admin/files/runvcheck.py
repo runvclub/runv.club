@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,15}$")
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
 KEY_TYPES = {
     "ssh-ed25519", "sk-ssh-ed25519@openssh.com",
     "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521",

@@ -20,11 +20,15 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
 import shutil
+import stat
 import sys
 
 sys.path.insert(0, "/usr/local/lib/runv")
+import runvcheck  # noqa: E402
 import runvmail  # noqa: E402
+import runvtext  # noqa: E402
 
 QUEUE = "/var/lib/runv-join/queue"
 JOIN_CONF = "/etc/runv-join/join.conf"
@@ -56,13 +60,32 @@ def signup():
     return c["signup"]
 
 
+ID_FILE = re.compile(r"([0-9a-f]{8})\.json")
+
+
 def requests():
+    """The queue is written by the web app's user, so nothing in a file is
+    trusted to name a path: the id comes from the file name, and only
+    names the app itself makes are read."""
     out = []
     for name in os.listdir(QUEUE):
-        if name.endswith(".json"):
-            with open(os.path.join(QUEUE, name)) as f:
-                out.append(json.load(f))
-    return sorted(out, key=lambda r: r["created_at"])
+        m = ID_FILE.fullmatch(name)
+        if not m:
+            continue
+        try:
+            fd = os.open(os.path.join(QUEUE, name), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd) as f:
+                if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                    continue
+                r = json.load(f)
+        except (OSError, ValueError) as e:
+            print(f"runv-queue: skipping {name}: {e}", file=sys.stderr)
+            continue
+        if not isinstance(r, dict):
+            continue
+        r["id"] = m.group(1)
+        out.append(r)
+    return sorted(out, key=lambda r: str(r.get("created_at")))
 
 
 def get(rid):
@@ -103,9 +126,11 @@ def cmd_list(args):
     for pos, r in enumerate(reqs, 1):
         days = (now() - dt.datetime.fromisoformat(r["created_at"])).days
         flag = " old member" if r.get("former_member") else ""
-        about = " ".join(r["about"].split())
+        # written by anyone on the internet, so nothing in it reaches the terminal raw
+        about = " ".join(runvtext.clean(r["about"], tabs=False).split())
         about = about[:60] + ("..." if len(about) > 60 else "")
-        print(f"{pos:>3} {r['id']} {r['username']:<16} {days:>3}d{flag}  {about}")
+        name = runvtext.clean(r["username"], 1, tabs=False)
+        print(f"{pos:>3} {r['id']} {name:<16} {days:>3}d{flag}  {about}")
     print(f"{len(approvals_this_week())} of {signup().getint('weekly_cap')} approvals used this week")
 
 
@@ -122,11 +147,19 @@ def cmd_approve(args):
     used = len(approvals_this_week())
     if used >= cap and not args.force:
         die(f"already {used} approvals in the last 7 days (cap is {cap}). use --force to go over")
+    # the web app checked all this already, but the queue is its user's to
+    # write, so root checks again before making an account out of it
+    try:
+        name = runvcheck.username(r["username"])
+        mail = runvcheck.email(r["email"])
+        key, fingerprint = runvcheck.ssh_key(r["key"])
+    except (KeyError, TypeError, ValueError) as e:
+        die(f"request {r['id']} doesn't hold up: {e}")
     conf = ru.load_conf()
     with open(ru.LOCK, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         db = ru.load_db()
-        ru.create(conf, db, r["username"], r["email"], r["key"], r["key_fingerprint"])
+        ru.create(conf, db, name, mail, key, fingerprint)
     drop(r)
 
 
