@@ -9,3 +9,5 @@ reply_days = {{ signup_reply_days }}
 reminder_day = {{ signup_reminder_day }}
 min_seconds = {{ signup_min_seconds }}
 base_url = https://runv.club
+# who hears about each new request
+notify_to = {{ signup_notify_to | default(mail_forward_to | default('')) }}

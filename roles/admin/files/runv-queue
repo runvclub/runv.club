@@ -188,12 +188,32 @@ def cmd_notify(args):
     tried = set()
     while True:
         todo = [(pos, r) for pos, r in enumerate(requests(), 1)
-                if not r.get("receipt_sent") and r["id"] not in tried]
+                if not (r.get("receipt_sent") and r.get("admin_told")) and r["id"] not in tried]
         if not todo:
             return
         for pos, r in todo:
             tried.add(r["id"])
-            send_receipt(pos, r)
+            if not r.get("receipt_sent"):
+                send_receipt(pos, r)
+            if not r.get("admin_told"):
+                tell_admin(pos, r)
+
+
+def tell_admin(pos, r):
+    to = signup().get("notify_to", "")
+    if not to:
+        return
+    about = runvtext.clean(r.get("about", ""), 20)[:1500]
+    body = f"""{r['username']} <{r['email']}> asked to join. Number {pos} in line.
+
+{about}
+
+sudo runv-queue approve {r['id']}
+sudo runv-queue reject {r['id']} --reason "..."
+"""
+    if runvmail.send(to, f"runv.club: {r['username']} wants in", body):
+        r["admin_told"] = True
+        save(r)
 
 
 def send_receipt(pos, r):
