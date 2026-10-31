@@ -5,6 +5,8 @@ Description=finger for runv.club
 ListenStream=79
 Accept=yes
 MaxConnections=20
+# one address can't take all 20 by opening connections and sending nothing
+MaxConnectionsPerSource=3
 
 [Install]
 WantedBy=sockets.target

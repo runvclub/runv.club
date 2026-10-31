@@ -7,24 +7,30 @@ import grp
 import os
 import pwd
 import re
+import signal
+import stat
 import subprocess
 import sys
+
+sys.path.insert(0, "/usr/local/lib/runv")
+import runvtext  # noqa: E402
 
 LIMIT = 8192
 
 
 def readable(path, uid):
+    # no link, and no fifo to sit waiting on
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
         return None
     with os.fdopen(fd, "rb") as f:
         st = os.fstat(f.fileno())
-        if st.st_uid != uid or not (st.st_mode & 0o100000):
+        if st.st_uid != uid or not stat.S_ISREG(st.st_mode):
             return None
         text = f.read(LIMIT).decode("utf-8", "replace")
     # no terminal tricks from a plan file
-    return re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text)
+    return runvtext.clean(text)
 
 
 def members():
@@ -35,7 +41,10 @@ def members():
 
 
 def main():
+    # a client that connects and says nothing gets dropped
+    signal.alarm(3)
     query = sys.stdin.buffer.readline(256).decode("ascii", "replace").strip()
+    signal.alarm(0)
     query = query.removeprefix("/W").strip()
     out = []
     if not query:

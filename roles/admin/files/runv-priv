@@ -23,6 +23,7 @@ import sys
 sys.path.insert(0, "/usr/local/lib/runv")
 import runvirc  # noqa: E402
 import runvsecret  # noqa: E402
+import runvtext  # noqa: E402
 
 DB = "/var/lib/runv/members.json"
 
@@ -82,14 +83,40 @@ def token_ntfy(m):
 BOARD = "/var/lib/runv-board/board.db"
 
 
+def slow_down(kind, who, limits):
+    """At most n per so many seconds, for each (n, seconds) in limits.
+    Locked, so a pile of calls started at once still counts one by one.
+    Lives in /run: a reboot forgets it, which is fine."""
+    import fcntl
+    import time
+    os.makedirs("/run/runv-limits", mode=0o700, exist_ok=True)
+    longest = max(s for _, s in limits)
+    now = time.time()
+    with open(os.path.join("/run/runv-limits", f"{kind}-{who}"), "a+") as log:
+        fcntl.flock(log, fcntl.LOCK_EX)
+        log.seek(0)
+        try:
+            recent = [float(t) for t in log.read().split() if now - float(t) < longest]
+        except ValueError:
+            recent = []
+        for n, secs in limits:
+            if sum(now - t < secs for t in recent) >= n:
+                die("slow down, try again in a minute" if secs <= 60 else "that's enough for today")
+        log.seek(0)
+        log.truncate()
+        log.write(" ".join(str(t) for t in recent + [now]))
+
+
 def board(m, action, thread):
     import datetime as dt
     import sqlite3
-    text = sys.stdin.read(20_000).strip()
+    # nothing a terminal would act on reaches the people who read it
+    text = runvtext.clean(sys.stdin.read(20_000), 400).strip()
     if not text:
         die("empty post")
+    slow_down("board", m["username"], [(5, 60), (50, 86400)])
     os.makedirs(os.path.dirname(BOARD), mode=0o755, exist_ok=True)
-    c = sqlite3.connect(BOARD)
+    c = sqlite3.connect(BOARD, timeout=5)
     c.executescript("""
         create table if not exists threads (id integer primary key, title, author, created);
         create table if not exists posts (id integer primary key, thread, author, created, body);
@@ -121,12 +148,6 @@ def guestbook(m, action, note):
     sys.exit(subprocess.run(cmd).returncode)
 
 
-def strip_controls(line):
-    # nothing that a terminal would act on: no escapes, no bidi tricks
-    return "".join(c for c in line if c == "\t" or (c.isprintable() and not "\u202a" <= c <= "\u202e"
-                                                    and not "\u2066" <= c <= "\u2069"))
-
-
 def write_to(m, to):
     """Debian dropped write(1) and utmp, so this is ours. The target's
     terminals are the ptys they own, and mesg y is the group write bit on
@@ -156,26 +177,11 @@ def write_to(m, to):
     if not ttys:
         die(f"{to} has messages turned off" if muted else f"{to} isn't logged in")
 
-    # five messages a minute is plenty for a person. locked, so a pile of
-    # writes started at once still counts one by one
-    import fcntl
-    os.makedirs("/run/runv-write", mode=0o700, exist_ok=True)
-    now = time.time()
-    with open(os.path.join("/run/runv-write", sender), "a+") as log:
-        fcntl.flock(log, fcntl.LOCK_EX)
-        log.seek(0)
-        try:
-            recent = [float(t) for t in log.read().split() if now - float(t) < 60]
-        except ValueError:
-            recent = []
-        if len(recent) >= 5:
-            die("slow down, try again in a minute")
-        log.seek(0)
-        log.truncate()
-        log.write(" ".join(str(t) for t in recent + [now]))
+    # five messages a minute is plenty for a person
+    slow_down("write", sender, [(5, 60)])
 
     text = sys.stdin.buffer.read(4000).decode("utf-8", "replace")
-    lines = [strip_controls(l)[:300] for l in text.replace("\r", "").split("\n")]
+    lines = [l[:300] for l in runvtext.clean(text).split("\n")]
     while lines and not lines[-1].strip():
         lines.pop()
     if not lines:

@@ -9,8 +9,12 @@ import datetime as dt
 import glob
 import os
 import pwd
+import stat
 import sys
 import urllib.request
+
+sys.path.insert(0, "/usr/local/lib/runv")
+import runvtext  # noqa: E402
 
 USER = pwd.getpwuid(os.getuid()).pw_name
 HOME = pwd.getpwuid(os.getuid()).pw_dir
@@ -29,7 +33,20 @@ def parse(text, who):
                 t = t.replace(tzinfo=dt.timezone.utc)
         except ValueError:
             continue
-        yield t, who, msg
+        # other people's text, about to hit this terminal
+        yield t, runvtext.clean(who, 1, tabs=False), runvtext.clean(msg, 1, tabs=False)
+
+
+def read_feed(path):
+    """Someone else's twtxt.txt: a plain file, never a link or a fifo."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return ""
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            return ""
+        return f.read(200_000).decode(errors="replace")
 
 
 def following():
@@ -43,12 +60,7 @@ def following():
 def timeline():
     posts = []
     for path in glob.glob("/home/*/public_html/twtxt.txt"):
-        who = path.split("/")[2]
-        try:
-            with open(path, errors="replace") as f:
-                posts += parse(f.read(200_000), who)
-        except OSError:
-            pass
+        posts += parse(read_feed(path), path.split("/")[2])
     for who, url in following():
         try:
             with urllib.request.urlopen(url.strip(), timeout=5) as r:
