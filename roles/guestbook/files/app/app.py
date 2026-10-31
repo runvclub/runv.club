@@ -37,9 +37,14 @@ def secret():
 
 @app.after_request
 def headers(resp):
+    # the embed lives in an iframe on member pages, and those are sandboxed,
+    # so their origin matches nothing: the embed can be framed by anyone.
+    # it only shows approved notes and a form with its own token
+    embed = request.path.endswith("/embed")
     resp.headers["Content-Security-Policy"] = ("default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
-                                               "frame-ancestors 'self'; base-uri 'none'")
-    resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+                                               f"frame-ancestors {'*' if embed else chr(39) + 'self' + chr(39)}; base-uri 'none'")
+    if not embed:
+        resp.headers["X-Frame-Options"] = "SAMEORIGIN"
     return resp
 
 

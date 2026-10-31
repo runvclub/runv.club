@@ -74,8 +74,17 @@ server {
         if ($rest = "") {
             return 301 /~$member/;
         }
+        # a copied ~/.ssh or a whole repo in public_html is an accident
+        if ($rest ~ "/\.(git|ssh|gnupg)(/|$)") {
+            return 404;
+        }
         alias /home/$member/public_html$rest;
         error_page 403 =404 /404;
+        # each member page runs in an origin of its own: scripts work, but
+        # they can't read runv.club, use its cookies or post its forms as
+        # the visitor. add_header here drops the server's, so they come again
+        include snippets/runv-headers.conf;
+        add_header Content-Security-Policy "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals" always;
     }
 
     location = /404 {
@@ -93,6 +102,11 @@ server {
 
     # guestbooks, served by runv-guestbook. it sets its own CSP
     location ^~ /guestbook/ {
+        # the server's headers minus frame-ancestors, which the app sets
+        # itself (the embed has to be framable by member pages)
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
         limit_req zone=gb_post burst=2 nodelay;
         limit_req zone=gb_read burst=20 nodelay;
         client_max_body_size 4k;
