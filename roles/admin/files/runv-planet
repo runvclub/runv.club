@@ -3,10 +3,12 @@
 # runv.club/planet, as a feed and as a short list on the home page. also
 # the member directory at runv.club/~, who changed their page in the last
 # day (also as a feed at /updated.xml), the webring at /ring and /tilde.json
+import datetime as dt
 import html
 import json
 import os
 import pwd
+import re
 import stat
 import time
 import xml.etree.ElementTree as ET
@@ -26,8 +28,32 @@ li { margin: 0 0 .75rem; }
 footer { margin-top: 3rem; font-size: 1rem; }"""
 
 
+# posts per member on the planet, so nobody can push everyone else off it
+PER_MEMBER = 5
+
+
+def home_of(name):
+    """None for a name in members.json that isn't on the system (yet)."""
+    try:
+        return pwd.getpwnam(name).pw_dir
+    except KeyError:
+        return None
+
+
+def day_of(text):
+    """A YYYY-MM-DD that isn't in the future, or nothing: the date comes
+    from the member's own feed and ends up in the home page."""
+    d = (text or "")[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) or d > dt.date.today().isoformat():
+        return ""
+    return d
+
+
 def feed_of(name, uid):
-    path = os.path.join(pwd.getpwnam(name).pw_dir, "public_html", "blog", "atom.xml")
+    home = home_of(name)
+    if not home:
+        return []
+    path = os.path.join(home, "public_html", "blog", "atom.xml")
     try:
         # a member's feed must be a real file of theirs, not a link to something
         # else, and not a fifo that would leave us waiting forever
@@ -38,8 +64,12 @@ def feed_of(name, uid):
         st = os.fstat(f.fileno())
         if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_size > 512 * 1024:
             return []
+        data = f.read(512 * 1024 + 1)
+        # it can grow between the fstat and the read
+        if len(data) > 512 * 1024:
+            return []
         try:
-            root = ET.fromstring(f.read())
+            root = ET.fromstring(data)
         except ET.ParseError:
             return []
     prefix = f"https://runv.club/~{name}/"
@@ -50,8 +80,9 @@ def feed_of(name, uid):
         if not url.startswith(prefix):
             continue
         posts.append({"who": name, "title": (e.findtext(f"{A}title") or "untitled")[:200],
-                      "url": url, "date": (e.findtext(f"{A}updated") or "")[:10]})
-    return posts
+                      "url": url, "date": day_of(e.findtext(f"{A}updated"))})
+    posts.sort(key=lambda p: p["date"], reverse=True)
+    return posts[:PER_MEMBER]
 
 
 def last_change(home):
@@ -63,30 +94,39 @@ def last_change(home):
         return 0
     # a date in the future would keep someone at the top of the list
     later = time.time() + 300
-    for root, dirs, files in os.walk(top, followlinks=False):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        seen += 1
-        if seen > 5000:
-            return newest
-        for f in files:
-            try:
-                mtime = os.lstat(os.path.join(root, f)).st_mtime
-                if mtime < later:
-                    newest = max(newest, mtime)
-            except OSError:
-                pass
-            seen += 1
-            if seen > 5000:
-                return newest
+    # scandir hands out entries as it reads them, so a directory with a
+    # million files costs 5000 entries, not a million (os.walk lists it all)
+    todo = [top]
+    while todo:
+        try:
+            it = os.scandir(todo.pop())
+        except OSError:
+            continue
+        with it:
+            for e in it:
+                seen += 1
+                if seen > 5000:
+                    return newest
+                try:
+                    if e.is_dir(follow_symlinks=False):
+                        if not e.name.startswith("."):
+                            todo.append(e.path)
+                    elif e.is_file(follow_symlinks=False):
+                        mtime = e.stat(follow_symlinks=False).st_mtime
+                        if mtime < later:
+                            newest = max(newest, mtime)
+                except OSError:
+                    pass
     return newest
 
 
 def directory(members):
-    import datetime as dt
     rows = []
     for m in members:
         name = m["username"]
-        home = pwd.getpwnam(name).pw_dir
+        home = home_of(name)
+        if not home:
+            continue
         rows.append((last_change(home), name, (m.get("created_at") or "")[:10]))
     rows.sort(reverse=True)
 
@@ -138,7 +178,7 @@ def directory(members):
 def in_ring(name, uid):
     """~/.ring is the opt-in: a plain file of theirs, never a link."""
     try:
-        st = os.lstat(os.path.join(pwd.getpwnam(name).pw_dir, ".ring"))
+        st = os.lstat(os.path.join(home_of(name) or "/nonexistent", ".ring"))
     except OSError:
         return False
     return stat.S_ISREG(st.st_mode) and st.st_uid == uid
@@ -222,7 +262,7 @@ def main():
 
     def li(p):
         return (f'<li><a href="{html.escape(p["url"])}">{html.escape(p["title"])}</a> '
-                f'<span class="who">~{p["who"]}, {p["date"]}</span></li>')
+                f'<span class="who">~{html.escape(p["who"])}, {html.escape(p["date"])}</span></li>')
 
     items = "\n".join(li(p) for p in posts) or "<li>no posts yet</li>"
     write(os.path.join(OUT, "index.html"), f"""<!doctype html>
@@ -251,9 +291,9 @@ def main():
           f'<h2>Lately on the planet</h2>\n<ul class="planet">\n{latest}\n</ul>\n<p><a href="/planet/">More posts</a></p>\n'
           if posts else "")
     entries = "".join(
-        f"<entry><title>{html.escape(p['title'])} (~{p['who']})</title><link href=\"{html.escape(p['url'])}\"/>"
+        f"<entry><title>{html.escape(p['title'])} (~{html.escape(p['who'])})</title><link href=\"{html.escape(p['url'])}\"/>"
         f"<id>{html.escape(p['url'])}</id><updated>{p['date'] or '2026-01-01'}T12:00:00Z</updated>"
-        f"<author><name>{p['who']}</name></author></entry>" for p in posts)
+        f"<author><name>{html.escape(p['who'])}</name></author></entry>" for p in posts)
     write(os.path.join(OUT, "atom.xml"), '<?xml version="1.0" encoding="utf-8"?>\n'
           '<feed xmlns="http://www.w3.org/2005/Atom"><title>planet runv</title>'
           '<link href="https://runv.club/planet/"/><id>https://runv.club/planet/</id>'

@@ -1,13 +1,16 @@
 #!/bin/sh
 # every few minutes, as each member: rebuild the blog if ~/blog changed,
-# and drop expired pastes. nothing here runs as root on member files.
+# and drop expired pastes. nothing here runs as root on member files: the
+# work runs as the member, inside their own slice, with their limits.
 set -u
 # and keep each active member's tunnel dir in /run/runv-apps: theirs, with
 # group www-data so nginx can reach the socket in it
 apps=/run/runv-apps
+is_member() { id -nG "$1" 2>/dev/null | tr ' ' '\n' | grep -qx members; }
+
 for home in /home/*; do
     name=$(basename "$home")
-    id -nG "$name" 2>/dev/null | grep -qw members || continue
+    is_member "$name" || continue
     if [ "$(stat -c %a "$home")" != 711 ]; then    # suspended homes are 700
         rm -rf "${apps:?}/$name"
         continue
@@ -15,15 +18,18 @@ for home in /home/*; do
     if [ -d "$apps" ] && [ ! -d "$apps/$name" ]; then
         install -d -o "$name" -g www-data -m 2770 "$apps/$name"
     fi
-    if [ -d "$home/blog" ]; then
-        stamp="$home/public_html/blog/.built"
-        if [ ! -e "$stamp" ] || [ -n "$(find "$home/blog" -newer "$stamp" -print -quit 2>/dev/null)" ]; then
-            runuser -u "$name" -- env HOME="$home" timeout 60 blog build >/dev/null 2>&1 || true
-        fi
-    fi
-    if [ -f "$home/public_html/p/.expire" ]; then
-        runuser -u "$name" -- env HOME="$home" timeout 30 pb --clean >/dev/null 2>&1 || true
-    fi
+    uid=$(id -u "$name")
+    systemd-run --quiet --wait --collect --uid="$name" --gid="$name" \
+        --slice="user-$uid.slice" -p RuntimeMaxSec=120 --setenv=HOME="$home" \
+        --working-directory="$home" /bin/sh -c '
+            if [ -d blog ]; then
+                stamp=public_html/blog/.built
+                if [ ! -e "$stamp" ] || [ -n "$(timeout 10 find blog -newer "$stamp" -print -quit 2>/dev/null)" ]; then
+                    timeout 60 blog build >/dev/null 2>&1
+                fi
+            fi
+            [ -f public_html/p/.expire ] && timeout 30 pb --clean >/dev/null 2>&1
+            exit 0' >/dev/null 2>&1 || true
 done
 
 # who is on which mailing list, from everyone's ~/.lists
@@ -32,5 +38,5 @@ done
 # tunnel dirs of people who are gone
 for d in "$apps"/*; do
     [ -d "$d" ] || continue
-    id -nG "$(basename "$d")" 2>/dev/null | grep -qw members || rm -rf "$d"
+    is_member "$(basename "$d")" || rm -rf "$d"
 done
