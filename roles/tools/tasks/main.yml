@@ -259,7 +259,8 @@
 - name: games without setgid
   ansible.builtin.shell: |
     for f in $(find /usr/games /usr/lib/games -type f -perm -2000 2>/dev/null); do
-      dpkg-statoverride --list "$f" >/dev/null && continue
+      # some come with an override of their own (nethack's recover)
+      dpkg-statoverride --list "$f" >/dev/null && dpkg-statoverride --remove "$f"
       dpkg-statoverride --update --add root root 0755 "$f" && echo "changed $f"
     done
   register: games_sgid
