@@ -66,6 +66,15 @@
     group: root
     mode: "0755"
 
+- name: what members can't put in From
+  ansible.builtin.copy:
+    src: local-header-checks.regexp
+    dest: /etc/postfix/local-header-checks.regexp
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload postfix
+
 - name: who members may send as
   ansible.builtin.copy:
     src: login-senders.regexp

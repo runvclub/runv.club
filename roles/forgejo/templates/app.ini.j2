@@ -40,6 +40,10 @@ ISSUE_INDEXER_TYPE = db
 [actions]
 ENABLED = false
 
+[webhook]
+; never loopback or private ranges. the tailnet is blocked by the unit
+ALLOWED_HOST_LIST = external
+
 [service]
 DISABLE_REGISTRATION = true
 SHOW_REGISTRATION_BUTTON = false

@@ -19,7 +19,9 @@ server {
         return 404;
     }
 
+    # soju can't see where web clients come from, so they're slowed here
     location = /socket {
+        limit_req zone=chat burst=5 nodelay;
         proxy_pass http://127.0.0.1:{{ irc_ws_port }};
         proxy_read_timeout 600s;
         proxy_http_version 1.1;

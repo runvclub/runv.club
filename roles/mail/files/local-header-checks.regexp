@@ -1,0 +1,3 @@
+# for mail handed to sendmail on this box. root's own cron mail says
+# From: root (Cron Daemon), with no domain, so it still goes through
+/^From:.*\b(root|admin|postmaster|abuse|hostmaster|webmaster|mailer-daemon|noreply|security)@/ REJECT the staff addresses aren't yours to send as

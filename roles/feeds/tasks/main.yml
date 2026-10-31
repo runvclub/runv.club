@@ -35,6 +35,31 @@
   no_log: true
   notify: restart miniflux
 
+- name: miniflux drop-in dir
+  ansible.builtin.file:
+    path: /etc/systemd/system/miniflux.service.d
+    state: directory
+    mode: "0755"
+
+- name: miniflux can't reach the tailnet
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      # members can make these fetch urls (webhooks, feeds, bookmarks), and the
+      # firewall rules for members don't cover service users: no tailnet, no
+      # cloud metadata
+      IPAddressDeny=100.64.0.0/10 169.254.0.0/16 fd7a:115c:a1e0::/48
+    dest: /etc/systemd/system/miniflux.service.d/runv.conf
+    mode: "0644"
+  register: miniflux_dropin
+
+- name: miniflux picks up the drop-in
+  ansible.builtin.systemd_service:
+    name: miniflux
+    daemon_reload: true
+    state: restarted
+  when: miniflux_dropin.changed
+
 - name: running
   ansible.builtin.systemd_service:
     name: miniflux
